@@ -1,0 +1,65 @@
+# Environment files
+.env
+.env.local
+.env.production
+
+# Logs
+logs/
+*.log
+
+# Database data
+data/
+*.db
+
+# Docker volumes and temp files
+volumes/
+temp/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Go specific
+vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work.sum
+
+# Build artifacts
+dist/
+build/
+target/
+
+# Elasticsearch data
+infrastructure/monitoring/elasticsearch/
+
+# Temporary files
+tmp/
+*.tmp
+*.bak
+
+# Certificate files (if any)
+*.pem
+*.key
+*.crt
+
+# Test coverage
+coverage.txt
+*.cover
+*.coverprofile
