@@ -1,0 +1,12 @@
+go 1.23.2
+
+use (
+	.
+	./services/assembly-service
+	./services/iam-service
+	./services/inventory-service
+	./services/notification-service
+	./services/order-service
+	./services/payment-service
+	./shared
+)
