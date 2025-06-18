@@ -1,0 +1,347 @@
+version: '3.8'
+
+networks:
+  rocket-science-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mongodb_data:
+  redis_data:
+  grafana_data:
+  prometheus_data:
+
+services:
+  # =================================
+  # ENVOY GATEWAY (Single Entry Point)
+  # =================================
+  envoy:
+    build:
+      context: ./infrastructure/envoy
+      dockerfile: Dockerfile
+    container_name: envoy-gateway
+    ports:
+      - "80:10000"     # HTTP/gRPC traffic - ONLY exposed port to outside world
+      - "9901:9901"    # Envoy admin interface (can be removed in production)
+    networks:
+      - rocket-science-network
+    depends_on:
+      - iam-service
+      - order-service
+      - payment-service
+      - inventory-service
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9901/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # =================================
+  # CORE MICROSERVICES
+  # =================================
+  
+  # IAM Service - Authentication & Authorization
+  iam-service:
+    build:
+      context: ./services/iam-service
+      dockerfile: Dockerfile
+    container_name: iam-service
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=rocket_iam
+      - DB_USER=rocket_user
+      - DB_PASSWORD=rocket_password
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - GRPC_PORT=50053
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+    networks:
+      - rocket-science-network
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    # No external ports - only accessible through Envoy
+
+  # Order Service - Main business logic
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Dockerfile
+    container_name: order-service
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=rocket_orders
+      - DB_USER=rocket_user
+      - DB_PASSWORD=rocket_password
+      - KAFKA_BROKERS=kafka:9092
+      - IAM_SERVICE_URL=iam-service:50053
+      - PAYMENT_SERVICE_URL=payment-service:50051
+      - INVENTORY_SERVICE_URL=inventory-service:50052
+      - HTTP_PORT=8080
+    networks:
+      - rocket-science-network
+    depends_on:
+      - postgres
+      - kafka
+      - iam-service
+      - payment-service
+      - inventory-service
+    restart: unless-stopped
+    # No external ports - only accessible through Envoy
+
+  # Payment Service
+  payment-service:
+    build:
+      context: ./services/payment-service
+      dockerfile: Dockerfile
+    container_name: payment-service
+    environment:
+      - GRPC_PORT=50051
+      - IAM_SERVICE_URL=iam-service:50053
+    networks:
+      - rocket-science-network
+    depends_on:
+      - iam-service
+    restart: unless-stopped
+    # No external ports - only accessible through Envoy
+
+  # Inventory Service
+  inventory-service:
+    build:
+      context: ./services/inventory-service
+      dockerfile: Dockerfile
+    container_name: inventory-service
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/rocket_inventory
+      - GRPC_PORT=50052
+      - IAM_SERVICE_URL=iam-service:50053
+    networks:
+      - rocket-science-network
+    depends_on:
+      - mongo
+      - iam-service
+    restart: unless-stopped
+    # No external ports - only accessible through Envoy
+
+  # Assembly Service - Kafka Consumer
+  assembly-service:
+    build:
+      context: ./services/assembly-service
+      dockerfile: Dockerfile
+    container_name: assembly-service
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_CONSUMER_GROUP=assembly-service
+      - KAFKA_TOPICS=payment.completed
+    networks:
+      - rocket-science-network
+    depends_on:
+      - kafka
+    restart: unless-stopped
+    # No external ports - internal service only
+
+  # Notification Service - Kafka Consumer
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_CONSUMER_GROUP=notification-service
+      - KAFKA_TOPICS=assembly.completed,payment.completed
+      - IAM_SERVICE_URL=iam-service:50053
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    networks:
+      - rocket-science-network
+    depends_on:
+      - kafka
+      - iam-service
+    restart: unless-stopped
+    # No external ports - internal service only
+
+  # =================================
+  # DATABASES
+  # =================================
+  
+  # PostgreSQL - For IAM and Order services
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    environment:
+      - POSTGRES_DB=rocket_science
+      - POSTGRES_USER=rocket_user
+      - POSTGRES_PASSWORD=rocket_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/databases/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - rocket-science-network
+    restart: unless-stopped
+    # No external ports - internal only
+
+  # MongoDB - For Inventory service
+  mongo:
+    image: mongo:7.0
+    container_name: mongodb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=rocket_user
+      - MONGO_INITDB_ROOT_PASSWORD=rocket_password
+      - MONGO_INITDB_DATABASE=rocket_inventory
+    volumes:
+      - mongodb_data:/data/db
+      - ./infrastructure/databases/mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks:
+      - rocket-science-network
+    restart: unless-stopped
+    # No external ports - internal only
+
+  # Redis - For session storage
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis_data:/data
+      - ./infrastructure/databases/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - rocket-science-network
+    restart: unless-stopped
+    # No external ports - internal only
+
+  # =================================
+  # MESSAGE BROKER
+  # =================================
+  
+  # Kafka - Event streaming
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://kafka:9092'
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    volumes:
+      - ./infrastructure/kafka:/kafka
+    networks:
+      - rocket-science-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:9092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    # No external ports - internal only
+
+  # =================================
+  # MONITORING & OBSERVABILITY
+  # =================================
+  
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./infrastructure/monitoring/otel-collector/otel-collector.yml:/etc/otel-collector-config.yml:ro
+    networks:
+      - rocket-science-network
+    depends_on:
+      - jaeger
+      - prometheus
+    restart: unless-stopped
+    # No external ports - internal only
+
+  # Prometheus - Metrics storage
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./infrastructure/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - rocket-science-network
+    restart: unless-stopped
+    # No external ports - internal only
+
+  # Grafana - Metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/monitoring/grafana:/etc/grafana/provisioning:ro
+    networks:
+      - rocket-science-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    # Accessible through Envoy at /grafana
+
+  # Jaeger - Distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - rocket-science-network
+    restart: unless-stopped
+    # Accessible through Envoy at /jaeger
+
+  # Kibana - Logs visualization  
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - KIBANA_SYSTEM_PASSWORD=kibana123
+    volumes:
+      - ./infrastructure/monitoring/kibana/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
+    networks:
+      - rocket-science-network
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+    # Accessible through Envoy at /kibana
+
+  # Elasticsearch - Logs storage
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+    volumes:
+      - ./infrastructure/monitoring/elasticsearch:/usr/share/elasticsearch/data
+    networks:
+      - rocket-science-network
+    restart: unless-stopped
+    # No external ports - internal only
