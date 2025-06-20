@@ -1,0 +1,267 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'rocket-science'
+    environment: 'development'
+
+# Alertmanager configuration (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - "rules/*.yml"
+
+# Scrape configuration
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # OpenTelemetry Collector metrics
+  - job_name: 'otel-collector'
+    static_configs:
+      - targets: ['otel-collector:8888', 'otel-collector:8889']
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+  # ===== MICROSERVICES =====
+  
+  # Envoy Gateway
+  - job_name: 'envoy-gateway'
+    static_configs:
+      - targets: ['envoy:9901']
+    scrape_interval: 15s
+    metrics_path: /stats/prometheus
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'envoy-gateway'
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'envoy'
+
+  # IAM Service
+  - job_name: 'iam-service'
+    static_configs:
+      - targets: ['iam-service:2112']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'iam-service'
+
+  # Order Service
+  - job_name: 'order-service'
+    static_configs:
+      - targets: ['order-service:2112']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'order-service'
+
+  # Payment Service
+  - job_name: 'payment-service'
+    static_configs:
+      - targets: ['payment-service:2112']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'payment-service'
+
+  # Inventory Service
+  - job_name: 'inventory-service'
+    static_configs:
+      - targets: ['inventory-service:2112']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'inventory-service'
+
+  # Assembly Service
+  - job_name: 'assembly-service'
+    static_configs:
+      - targets: ['assembly-service:2112']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'assembly-service'
+
+  # Notification Service
+  - job_name: 'notification-service'
+    static_configs:
+      - targets: ['notification-service:2112']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'notification-service'
+
+  # ===== INFRASTRUCTURE =====
+
+  # PostgreSQL
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'postgresql'
+
+  # MongoDB
+  - job_name: 'mongodb'
+    static_configs:
+      - targets: ['mongo:27017']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'mongodb'
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'redis'
+
+  # Kafka
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9092']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'kafka'
+
+  # ===== MONITORING STACK =====
+
+  # Grafana
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+    scrape_interval: 60s
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'grafana'
+
+  # Jaeger
+  - job_name: 'jaeger'
+    static_configs:
+      - targets: ['jaeger:16686']
+    scrape_interval: 60s
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'jaeger'
+
+  # Elasticsearch
+  - job_name: 'elasticsearch'
+    static_configs:
+      - targets: ['elasticsearch:9200']
+    scrape_interval: 60s
+    metrics_path: /_prometheus/metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'elasticsearch'
+
+  # Kibana
+  - job_name: 'kibana'
+    static_configs:
+      - targets: ['kibana:5601']
+    scrape_interval: 60s
+    metrics_path: /api/status
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'kibana'
+
+# Recording rules for pre-computing frequently used queries
+recording_rules:
+  - name: rocket_science_aggregations
+    interval: 30s
+    rules:
+      # HTTP request rate by service
+      - record: rocket_science:http_requests_per_second
+        expr: rate(http_requests_total[5m])
+        labels:
+          aggregation: rate
+
+      # HTTP error rate by service
+      - record: rocket_science:http_error_rate
+        expr: rate(http_requests_total{status=~"4..|5.."}[5m]) / rate(http_requests_total[5m])
+        labels:
+          aggregation: error_rate
+
+      # HTTP response time 95th percentile
+      - record: rocket_science:http_response_time_95th
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+        labels:
+          aggregation: p95
+
+      # gRPC request rate by service
+      - record: rocket_science:grpc_requests_per_second
+        expr: rate(grpc_server_handled_total[5m])
+        labels:
+          aggregation: rate
+
+      # Database connection pool usage
+      - record: rocket_science:db_connection_pool_usage
+        expr: db_connections_active / db_connections_max
+        labels:
+          aggregation: utilization
+
+      # Kafka consumer lag
+      - record: rocket_science:kafka_consumer_lag_total
+        expr: sum(kafka_consumer_lag_sum) by (service, topic)
+        labels:
+          aggregation: sum
+
+# Storage configuration
+storage:
+  tsdb:
+    retention.time: 15d
+    retention.size: 10GB
+    min-block-duration: 2h
+    max-block-duration: 25h
+    wal-compression: true
+
+# Remote storage configuration (for long-term storage)
+# remote_storage:
+#   remote_write:
+#     - url: "https://your-remote-storage-endpoint/api/v1/write"
+#       name: "long-term-storage"
+#       queue_config:
+#         max_samples_per_send: 1000
+#         max_shards: 200
+#         capacity: 10000

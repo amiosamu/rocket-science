@@ -1,0 +1,247 @@
+receivers:
+  # OTLP receiver for traces, metrics, and logs from services
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://localhost:*"
+            - "http://envoy:*"
+
+  # Prometheus receiver to scrape metrics from services
+  prometheus:
+    config:
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+      scrape_configs:
+        # Envoy Gateway metrics
+        - job_name: 'envoy-gateway'
+          static_configs:
+            - targets: ['envoy:9901']
+          metrics_path: /stats/prometheus
+          scrape_interval: 30s
+
+        # IAM Service metrics
+        - job_name: 'iam-service'
+          static_configs:
+            - targets: ['iam-service:2112']
+          metrics_path: /metrics
+          scrape_interval: 15s
+
+        # Order Service metrics
+        - job_name: 'order-service'
+          static_configs:
+            - targets: ['order-service:2112']
+          metrics_path: /metrics
+          scrape_interval: 15s
+
+        # Payment Service metrics
+        - job_name: 'payment-service'
+          static_configs:
+            - targets: ['payment-service:2112']
+          metrics_path: /metrics
+          scrape_interval: 15s
+
+        # Inventory Service metrics
+        - job_name: 'inventory-service'
+          static_configs:
+            - targets: ['inventory-service:2112']
+          metrics_path: /metrics
+          scrape_interval: 15s
+
+        # Assembly Service metrics
+        - job_name: 'assembly-service'
+          static_configs:
+            - targets: ['assembly-service:2112']
+          metrics_path: /metrics
+          scrape_interval: 15s
+
+        # Notification Service metrics
+        - job_name: 'notification-service'
+          static_configs:
+            - targets: ['notification-service:2112']
+          metrics_path: /metrics
+          scrape_interval: 15s
+
+        # Infrastructure metrics
+        - job_name: 'kafka'
+          static_configs:
+            - targets: ['kafka:9092']
+          metrics_path: /metrics
+          scrape_interval: 30s
+
+        - job_name: 'postgres'
+          static_configs:
+            - targets: ['postgres:5432']
+          metrics_path: /metrics
+          scrape_interval: 30s
+
+        - job_name: 'mongodb'
+          static_configs:
+            - targets: ['mongo:27017']
+          metrics_path: /metrics
+          scrape_interval: 30s
+
+        - job_name: 'redis'
+          static_configs:
+            - targets: ['redis:6379']
+          metrics_path: /metrics
+          scrape_interval: 30s
+
+  # Host metrics receiver for system-level monitoring
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      disk:
+        metrics:
+          system.disk.io:
+            enabled: true
+          system.disk.operations:
+            enabled: true
+      network:
+        metrics:
+          system.network.io:
+            enabled: true
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+
+processors:
+  # Batch processor for efficient data transmission
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+  # Memory limiter to prevent OOM
+  memory_limiter:
+    limit_mib: 256
+    spike_limit_mib: 64
+    check_interval: 5s
+
+  # Resource processor to add service metadata
+  resource:
+    attributes:
+      - key: service.namespace
+        value: rocket-science
+        action: upsert
+      - key: deployment.environment
+        value: development
+        action: upsert
+
+  # Span processor for trace enhancement
+  span:
+    name:
+      to_attributes:
+        rules:
+          - ^\/api\/orders\/(?P<order_id>.*)$
+          - ^\/api\/users\/(?P<user_id>.*)$
+
+  # Attributes processor for data enrichment
+  attributes:
+    actions:
+      - key: http.user_agent
+        action: delete
+        match_type: regexp
+        value: ".*"
+      - key: net.peer.ip
+        action: hash
+      - key: enduser.id
+        action: hash
+
+  # Probabilistic sampler for trace sampling
+  probabilistic_sampler:
+    sampling_percentage: 10  # Sample 10% of traces in production
+
+exporters:
+  # Jaeger exporter for distributed tracing
+  jaeger:
+    endpoint: jaeger:14250
+    tls:
+      insecure: true
+
+  # Prometheus exporter for metrics
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    const_labels:
+      environment: development
+      cluster: rocket-science
+
+  # Prometheus remote write for external Prometheus
+  prometheusremotewrite:
+    endpoint: "http://prometheus:9090/api/v1/write"
+    tls:
+      insecure: true
+
+  # Elasticsearch exporter for logs
+  elasticsearch:
+    endpoints: ["http://elasticsearch:9200"]
+    logs_index: "rocket-science-logs"
+    http:
+      timeout: 30s
+      headers:
+        Content-Type: "application/json"
+
+  # File exporter for debugging (can be removed in production)
+  file:
+    path: /tmp/otel-output.json
+
+  # Logging exporter for debugging
+  logging:
+    loglevel: info
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+extensions:
+  # Health check extension
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+  # Performance profiler extension
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+  # Memory ballast extension
+  memory_ballast:
+    size_mib: 64
+
+service:
+  extensions: [health_check, pprof, memory_ballast]
+  
+  pipelines:
+    # Traces pipeline
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, span, attributes, probabilistic_sampler, batch]
+      exporters: [jaeger, logging]
+
+    # Metrics pipeline  
+    metrics:
+      receivers: [otlp, prometheus, hostmetrics]
+      processors: [memory_limiter, resource, batch]
+      exporters: [prometheus, prometheusremotewrite]
+
+    # Logs pipeline
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [elasticsearch, file]
+
+  telemetry:
+    logs:
+      level: "info"
+    metrics:
+      address: 0.0.0.0:8888

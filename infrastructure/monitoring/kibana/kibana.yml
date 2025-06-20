@@ -1,0 +1,349 @@
+# Kibana configuration for log visualization and analysis
+# This configuration sets up Kibana to work with Elasticsearch for the Rocket Science platform
+
+# Server configuration
+server:
+  # Kibana server host and port
+  host: "0.0.0.0"
+  port: 5601
+  
+  # Base path for Kibana (useful when behind a proxy)
+  basePath: ""
+  
+  # Public base URL for Kibana
+  publicBaseUrl: "http://localhost/kibana"
+  
+  # Server name for display purposes
+  name: "rocket-science-kibana"
+  
+  # Maximum payload size
+  maxPayload: 1048576
+  
+  # Enable compression
+  compression.enabled: true
+  
+  # CORS settings
+  cors:
+    enabled: true
+    allowCredentials: false
+    allowOrigin: ['*']
+
+# Elasticsearch configuration
+elasticsearch:
+  # Elasticsearch hosts
+  hosts: ["http://elasticsearch:9200"]
+  
+  # Index pattern for logs
+  index: ".kibana"
+  
+  # Username and password (if authentication is enabled)
+  # username: "kibana_system"
+  # password: "kibana123"
+  
+  # SSL configuration (if using HTTPS)
+  # ssl:
+  #   enabled: true
+  #   certificate: "/path/to/cert.pem"
+  #   key: "/path/to/key.pem"
+  #   certificateAuthorities: ["/path/to/ca.pem"]
+  
+  # Request timeout
+  requestTimeout: 30000
+  
+  # Ping timeout
+  pingTimeout: 1500
+  
+  # Startup timeout
+  startupTimeout: 5000
+
+# Logging configuration
+logging:
+  # Log level
+  level: info
+  
+  # Log output
+  appenders:
+    file:
+      type: file
+      fileName: /var/log/kibana/kibana.log
+      layout:
+        type: json
+    
+    console:
+      type: console
+      layout:
+        type: pattern
+        pattern: "[%date] [%level] [%logger] %message"
+  
+  # Root logger
+  root:
+    appenders:
+      - console
+      - file
+    level: info
+  
+  # Logger-specific configuration
+  loggers:
+    - name: elasticsearch
+      level: warn
+    - name: elasticsearch.query
+      level: warn
+
+# Monitoring configuration
+monitoring:
+  # Enable monitoring
+  enabled: true
+  
+  # Kibana monitoring
+  kibana:
+    collection:
+      enabled: true
+      interval: 10000
+  
+  # UI configuration
+  ui:
+    enabled: true
+    ccs:
+      enabled: false
+
+# Security configuration (if x-pack security is enabled)
+# xpack:
+#   security:
+#     enabled: true
+#     session:
+#       idleTimeout: "1h"
+#       lifespan: "30d"
+#     authc:
+#       providers:
+#         basic:
+#           basic1:
+#             order: 0
+
+# Telemetry configuration
+telemetry:
+  enabled: false
+  allowChangingOptInStatus: false
+
+# Data views configuration
+data_views:
+  # Default index pattern
+  default_index: "rocket-science-logs-*"
+
+# Saved objects configuration
+savedObjects:
+  maxImportPayloadBytes: 26214400
+  maxImportExportSize: 10000
+
+# Dashboard configuration
+dashboard:
+  defaultAppId: "discover"
+
+# Maps configuration (if using maps)
+map:
+  enabled: true
+  showMapVisualizationTypes: true
+
+# Alerting configuration
+alerting:
+  enabled: true
+  invalidateApiKeysTask:
+    interval: "5m"
+    removalDelay: "1h"
+
+# Actions configuration
+actions:
+  enabled: true
+  allowedHosts: ["*"]
+
+# Newsfeed configuration
+newsfeed:
+  enabled: false
+
+# Console configuration
+console:
+  enabled: true
+  ui:
+    enabled: true
+
+# Dev tools configuration
+devTools:
+  enabled: true
+
+# Reporting configuration (if using reporting)
+reporting:
+  enabled: true
+  queue:
+    timeout: 120000
+    pollInterval: 3000
+  capture:
+    browser:
+      chromium:
+        disableSandbox: true
+        proxy:
+          enabled: false
+
+# Canvas configuration
+canvas:
+  enabled: true
+
+# Timelion configuration
+timelion:
+  enabled: true
+  ui:
+    enabled: true
+
+# Lens configuration
+lens:
+  enabled: true
+
+# Spaces configuration
+spaces:
+  enabled: true
+  maxSpaces: 1000
+
+# Machine learning configuration (if using ML)
+ml:
+  enabled: true
+
+# Graph configuration (if using graph)
+graph:
+  enabled: true
+
+# Uptime configuration (if using uptime monitoring)
+uptime:
+  enabled: true
+
+# APM configuration (if using APM)
+apm:
+  enabled: true
+
+# Index management configuration
+indexManagement:
+  enabled: true
+
+# Snapshot and restore configuration
+snapshotRestore:
+  enabled: true
+
+# Cross cluster replication configuration
+crossClusterReplication:
+  enabled: true
+
+# Remote clusters configuration
+remoteClusters:
+  enabled: true
+
+# Transform configuration
+transform:
+  enabled: true
+
+# Watcher configuration (if using watcher)
+watcher:
+  enabled: true
+
+# Enterprise search configuration (if using enterprise search)
+enterpriseSearch:
+  enabled: false
+
+# Fleet configuration (if using fleet)
+fleet:
+  enabled: false
+
+# Osquery configuration (if using osquery)
+osquery:
+  enabled: false
+
+# Security solution configuration (if using security solution)
+securitySolution:
+  enabled: false
+
+# Observability configuration
+observability:
+  enabled: true
+  unsafe:
+    alertingExperience:
+      enabled: true
+    cases:
+      enabled: true
+    ruleFormV2:
+      enabled: true
+
+# Custom index patterns for Rocket Science services
+# These can be created via the Kibana UI or API
+index_patterns:
+  - name: "rocket-science-logs-*"
+    title: "Rocket Science Logs"
+    time_field: "@timestamp"
+    fields:
+      - name: "service"
+        type: "string"
+        searchable: true
+        aggregatable: true
+      - name: "level"
+        type: "string"
+        searchable: true
+        aggregatable: true
+      - name: "message"
+        type: "string"
+        searchable: true
+        aggregatable: false
+      - name: "trace_id"
+        type: "string"
+        searchable: true
+        aggregatable: true
+      - name: "span_id"
+        type: "string"
+        searchable: true
+        aggregatable: true
+      - name: "user_id"
+        type: "string"
+        searchable: true
+        aggregatable: true
+      - name: "request_id"
+        type: "string"
+        searchable: true
+        aggregatable: true
+      - name: "error"
+        type: "string"
+        searchable: true
+        aggregatable: false
+
+# Visualization settings
+visualization:
+  # Enable region map
+  regionmap:
+    enabled: true
+  
+  # Enable coordinate map
+  coordinatemap:
+    enabled: true
+  
+  # Enable tile map
+  tilemap:
+    enabled: true
+
+# Advanced settings
+advanced_settings:
+  # Default time range
+  timepicker:
+    timeDefaults: "Last 15 minutes"
+    refreshIntervalDefaults: "10 seconds"
+  
+  # Discover settings
+  discover:
+    sampleSize: 500
+    maxDocFieldsDisplayed: 50
+  
+  # Dashboard settings
+  dashboard:
+    defaultDarkMode: false
+    
+  # Visualization settings
+  visualization:
+    colorMapping: {}
+    
+  # Date format
+  dateFormat: "MMM D, YYYY @ HH:mm:ss.SSS"
+  
+  # Timezone
+  dateFormat:tz: "Browser"
