@@ -1,0 +1,296 @@
+syntax = "proto3";
+
+package events;
+
+option go_package = "github.com/amiosamu/rocket-science/shared/proto/events";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/any.proto";
+import "common/common.proto";
+
+// Base event structure following CloudEvents specification
+message BaseEvent {
+  string id = 1;
+  string type = 2;
+  string source = 3;
+  string subject = 4;
+  google.protobuf.Timestamp time = 5;
+  string data_content_type = 6;
+  google.protobuf.Any data = 7;
+  map<string, string> extensions = 8;
+  string spec_version = 9; // CloudEvents spec version
+}
+
+// Event envelope for Kafka messages
+message EventEnvelope {
+  BaseEvent event = 1;
+  common.RequestMetadata metadata = 2;
+  int32 retry_count = 3;
+  google.protobuf.Timestamp original_timestamp = 4;
+}
+
+// Order-related events
+message OrderCreatedEvent {
+  string order_id = 1;
+  string user_id = 2;
+  repeated OrderItem items = 3;
+  common.Money total_amount = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message OrderPaidEvent {
+  string order_id = 1;
+  string user_id = 2;
+  string transaction_id = 3;
+  common.Money amount = 4;
+  string payment_method = 5;
+  google.protobuf.Timestamp paid_at = 6;
+}
+
+message OrderStatusChangedEvent {
+  string order_id = 1;
+  string user_id = 2;
+  OrderStatus old_status = 3;
+  OrderStatus new_status = 4;
+  string reason = 5;
+  google.protobuf.Timestamp changed_at = 6;
+}
+
+message OrderCancelledEvent {
+  string order_id = 1;
+  string user_id = 2;
+  string reason = 3;
+  google.protobuf.Timestamp cancelled_at = 4;
+  bool refund_required = 5;
+}
+
+// Payment-related events
+message PaymentProcessedEvent {
+  string payment_id = 1;
+  string order_id = 2;
+  string user_id = 3;
+  common.Money amount = 4;
+  string payment_method = 5;
+  string transaction_id = 6;
+  PaymentStatus status = 7;
+  google.protobuf.Timestamp processed_at = 8;
+}
+
+message PaymentFailedEvent {
+  string payment_id = 1;
+  string order_id = 2;
+  string user_id = 3;
+  common.Money amount = 4;
+  string reason = 5;
+  string error_code = 6;
+  google.protobuf.Timestamp failed_at = 7;
+}
+
+// Assembly-related events
+message AssemblyStartedEvent {
+  string assembly_id = 1;
+  string order_id = 2;
+  string user_id = 3;
+  repeated RocketComponent components = 4;
+  google.protobuf.Timestamp started_at = 5;
+  int32 estimated_duration_seconds = 6;
+}
+
+message AssemblyCompletedEvent {
+  string assembly_id = 1;
+  string order_id = 2;
+  string user_id = 3;
+  int32 actual_duration_seconds = 4;
+  AssemblyQuality quality = 5;
+  google.protobuf.Timestamp completed_at = 6;
+}
+
+message AssemblyFailedEvent {
+  string assembly_id = 1;
+  string order_id = 2;
+  string user_id = 3;
+  string reason = 4;
+  string error_code = 5;
+  google.protobuf.Timestamp failed_at = 6;
+  repeated string failed_components = 7;
+}
+
+// Inventory-related events
+message InventoryReservedEvent {
+  string reservation_id = 1;
+  string order_id = 2;
+  repeated InventoryItem items = 3;
+  google.protobuf.Timestamp reserved_at = 4;
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+message InventoryReleasedEvent {
+  string reservation_id = 1;
+  string order_id = 2;
+  repeated InventoryItem items = 3;
+  string reason = 4;
+  google.protobuf.Timestamp released_at = 5;
+}
+
+message InventoryUpdatedEvent {
+  string item_id = 1;
+  string item_name = 2;
+  int32 old_quantity = 3;
+  int32 new_quantity = 4;
+  string reason = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// Notification-related events
+message NotificationSentEvent {
+  string notification_id = 1;
+  string user_id = 2;
+  NotificationType type = 3;
+  string channel = 4; // email, sms, telegram, push
+  string subject = 5;
+  string content = 6;
+  NotificationStatus status = 7;
+  google.protobuf.Timestamp sent_at = 8;
+}
+
+message NotificationFailedEvent {
+  string notification_id = 1;
+  string user_id = 2;
+  NotificationType type = 3;
+  string channel = 4;
+  string reason = 5;
+  string error_code = 6;
+  google.protobuf.Timestamp failed_at = 7;
+  int32 retry_count = 8;
+}
+
+// User-related events
+message UserCreatedEvent {
+  string user_id = 1;
+  string email = 2;
+  string username = 3;
+  repeated string roles = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message UserSessionStartedEvent {
+  string session_id = 1;
+  string user_id = 2;
+  string ip_address = 3;
+  string user_agent = 4;
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message UserSessionEndedEvent {
+  string session_id = 1;
+  string user_id = 2;
+  string reason = 3; // logout, timeout, forced
+  google.protobuf.Timestamp ended_at = 4;
+}
+
+// Supporting data structures
+message OrderItem {
+  string item_id = 1;
+  string item_name = 2;
+  int32 quantity = 3;
+  common.Money unit_price = 4;
+  common.Money total_price = 5;
+}
+
+message RocketComponent {
+  string component_id = 1;
+  string component_name = 2;
+  ComponentType type = 3;
+  map<string, string> specifications = 4;
+  int32 quantity = 5;
+}
+
+message InventoryItem {
+  string item_id = 1;
+  string item_name = 2;
+  int32 quantity = 3;
+  common.Money price = 4;
+  string category = 5;
+}
+
+// Enums
+enum OrderStatus {
+  ORDER_STATUS_UNKNOWN = 0;
+  ORDER_STATUS_PENDING = 1;
+  ORDER_STATUS_PAID = 2;
+  ORDER_STATUS_ASSEMBLING = 3;
+  ORDER_STATUS_ASSEMBLED = 4;
+  ORDER_STATUS_COMPLETED = 5;
+  ORDER_STATUS_CANCELLED = 6;
+  ORDER_STATUS_FAILED = 7;
+}
+
+enum PaymentStatus {
+  PAYMENT_STATUS_UNKNOWN = 0;
+  PAYMENT_STATUS_PENDING = 1;
+  PAYMENT_STATUS_PROCESSING = 2;
+  PAYMENT_STATUS_COMPLETED = 3;
+  PAYMENT_STATUS_FAILED = 4;
+  PAYMENT_STATUS_CANCELLED = 5;
+  PAYMENT_STATUS_REFUNDED = 6;
+}
+
+enum AssemblyQuality {
+  ASSEMBLY_QUALITY_UNKNOWN = 0;
+  ASSEMBLY_QUALITY_EXCELLENT = 1;
+  ASSEMBLY_QUALITY_GOOD = 2;
+  ASSEMBLY_QUALITY_FAIR = 3;
+  ASSEMBLY_QUALITY_POOR = 4;
+}
+
+enum ComponentType {
+  COMPONENT_TYPE_UNKNOWN = 0;
+  COMPONENT_TYPE_ENGINE = 1;
+  COMPONENT_TYPE_FUEL_TANK = 2;
+  COMPONENT_TYPE_GUIDANCE_SYSTEM = 3;
+  COMPONENT_TYPE_PAYLOAD_BAY = 4;
+  COMPONENT_TYPE_HEAT_SHIELD = 5;
+  COMPONENT_TYPE_LANDING_GEAR = 6;
+  COMPONENT_TYPE_COMMUNICATION = 7;
+  COMPONENT_TYPE_STRUCTURAL = 8;
+}
+
+enum NotificationType {
+  NOTIFICATION_TYPE_UNKNOWN = 0;
+  NOTIFICATION_TYPE_ORDER_CONFIRMATION = 1;
+  NOTIFICATION_TYPE_PAYMENT_CONFIRMATION = 2;
+  NOTIFICATION_TYPE_ASSEMBLY_STARTED = 3;
+  NOTIFICATION_TYPE_ASSEMBLY_COMPLETED = 4;
+  NOTIFICATION_TYPE_ORDER_READY = 5;
+  NOTIFICATION_TYPE_ORDER_CANCELLED = 6;
+  NOTIFICATION_TYPE_PAYMENT_FAILED = 7;
+  NOTIFICATION_TYPE_SYSTEM_ALERT = 8;
+}
+
+enum NotificationStatus {
+  NOTIFICATION_STATUS_UNKNOWN = 0;
+  NOTIFICATION_STATUS_PENDING = 1;
+  NOTIFICATION_STATUS_SENT = 2;
+  NOTIFICATION_STATUS_DELIVERED = 3;
+  NOTIFICATION_STATUS_FAILED = 4;
+  NOTIFICATION_STATUS_BOUNCED = 5;
+}
+
+// Batch events for efficiency
+message BatchOrderEvents {
+  repeated BaseEvent events = 1;
+  string batch_id = 2;
+  google.protobuf.Timestamp created_at = 3;
+  int32 event_count = 4;
+}
+
+// Dead letter event for failed processing
+message DeadLetterEvent {
+  BaseEvent original_event = 1;
+  string failure_reason = 2;
+  int32 retry_count = 3;
+  google.protobuf.Timestamp first_failed_at = 4;
+  google.protobuf.Timestamp last_failed_at = 5;
+  repeated string processing_errors = 6;
+}

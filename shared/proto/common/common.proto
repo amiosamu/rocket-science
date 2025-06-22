@@ -1,0 +1,211 @@
+syntax = "proto3";
+
+package common;
+
+option go_package = "github.com/amiosamu/rocket-science/shared/proto/common";
+
+import "google/protobuf/timestamp.proto";
+
+// Common response structure for all services
+message Response {
+  bool success = 1;
+  string message = 2;
+  ErrorDetails error = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+// Error details structure
+message ErrorDetails {
+  string code = 1;
+  string message = 2;
+  string type = 3; // validation, not_found, internal, etc.
+  repeated string details = 4;
+}
+
+// Pagination request
+message PaginationRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+  string sort_by = 3;
+  string sort_order = 4; // asc, desc
+}
+
+// Pagination response
+message PaginationResponse {
+  int32 total_count = 1;
+  int32 page_count = 2;
+  int32 current_page = 3;
+  int32 page_size = 4;
+  bool has_next = 5;
+  bool has_previous = 6;
+}
+
+// Health check request/response
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum Status {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+    SERVICE_UNKNOWN = 3;
+  }
+  Status status = 1;
+  string message = 2;
+  map<string, string> details = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+// User information (for context)
+message UserContext {
+  string user_id = 1;
+  string session_id = 2;
+  repeated string roles = 3;
+  map<string, string> metadata = 4;
+}
+
+// Request metadata (tracing, correlation, etc.)
+message RequestMetadata {
+  string request_id = 1;
+  string user_id = 2;
+  string session_id = 3;
+  string correlation_id = 4;
+  google.protobuf.Timestamp timestamp = 5;
+  string user_agent = 6;
+  string ip_address = 7;
+  map<string, string> headers = 8;
+}
+
+// Money representation
+message Money {
+  int64 amount = 1;        // Amount in smallest currency unit (e.g., cents)
+  string currency = 2;     // ISO 4217 currency code (e.g., "USD", "EUR")
+}
+
+// Address structure
+message Address {
+  string street = 1;
+  string city = 2;
+  string state = 3;
+  string postal_code = 4;
+  string country = 5;
+}
+
+// Contact information
+message Contact {
+  string email = 1;
+  string phone = 2;
+  string telegram_id = 3;
+  Address address = 4;
+}
+
+// Generic key-value pair
+message KeyValue {
+  string key = 1;
+  string value = 2;
+}
+
+// File/attachment reference
+message FileReference {
+  string file_id = 1;
+  string filename = 2;
+  string content_type = 3;
+  int64 size = 4;
+  string url = 5;
+  google.protobuf.Timestamp uploaded_at = 6;
+}
+
+// Audit information
+message AuditInfo {
+  google.protobuf.Timestamp created_at = 1;
+  google.protobuf.Timestamp updated_at = 2;
+  string created_by = 3;
+  string updated_by = 4;
+  int32 version = 5;
+}
+
+// Generic filter for list operations
+message Filter {
+  message StringFilter {
+    oneof filter {
+      string equals = 1;
+      string contains = 2;
+      string starts_with = 3;
+      string ends_with = 4;
+      string in = 5;
+    }
+  }
+  
+  message NumberFilter {
+    oneof filter {
+      int64 equals = 1;
+      int64 greater_than = 2;
+      int64 less_than = 3;
+      int64 greater_than_or_equal = 4;
+      int64 less_than_or_equal = 5;
+      int64 in = 6;
+    }
+  }
+  
+  message DateFilter {
+    oneof filter {
+      google.protobuf.Timestamp equals = 1;
+      google.protobuf.Timestamp after = 2;
+      google.protobuf.Timestamp before = 3;
+      DateRange range = 4;
+    }
+  }
+  
+  message DateRange {
+    google.protobuf.Timestamp start = 1;
+    google.protobuf.Timestamp end = 2;
+  }
+}
+
+// Metrics data structure
+message MetricData {
+  string name = 1;
+  string type = 2; // counter, gauge, histogram
+  double value = 3;
+  map<string, string> labels = 4;
+  google.protobuf.Timestamp timestamp = 5;
+  string unit = 6;
+}
+
+// Log entry structure
+message LogEntry {
+  enum Level {
+    UNKNOWN = 0;
+    DEBUG = 1;
+    INFO = 2;
+    WARN = 3;
+    ERROR = 4;
+    FATAL = 5;
+  }
+  
+  Level level = 1;
+  string message = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  string service = 4;
+  string trace_id = 5;
+  string span_id = 6;
+  map<string, string> fields = 7;
+  ErrorDetails error = 8;
+}
+
+// Pagination for list requests
+message Pagination {
+  int32 page = 1;
+  int32 page_size = 2;
+  int64 total = 3;
+  int32 total_pages = 4;
+}
+
+// Generic error response
+message Error {
+  string code = 1;
+  string message = 2;
+  map<string, string> details = 3;
+}
