@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+package payment.v1;
+
+option go_package = "github.com/amiosamu/rocket-science/services/payment-service/proto/payment";
+
+import "google/protobuf/timestamp.proto";
+
+// PaymentService handles payment processing for rocket parts orders
+service PaymentService {
+  // ProcessPayment processes a payment for an order
+  rpc ProcessPayment(ProcessPaymentRequest) returns (ProcessPaymentResponse);
+  
+  // GetPaymentStatus retrieves the status of a payment
+  rpc GetPaymentStatus(GetPaymentStatusRequest) returns (GetPaymentStatusResponse);
+  
+  // RefundPayment processes a refund for a payment
+  rpc RefundPayment(RefundPaymentRequest) returns (RefundPaymentResponse);
+}
+
+// ProcessPaymentRequest contains payment processing details
+message ProcessPaymentRequest {
+  string order_id = 1;              // Unique order identifier
+  string user_id = 2;               // User making the payment
+  double amount = 3;                // Payment amount in USD
+  string currency = 4;              // Currency code (e.g., "USD")
+  PaymentMethod payment_method = 5; // Payment method details
+  string description = 6;           // Payment description
+}
+
+// ProcessPaymentResponse contains payment processing result
+message ProcessPaymentResponse {
+  bool success = 1;                           // Whether payment was successful
+  string transaction_id = 2;                  // Unique transaction identifier
+  string message = 3;                         // Success or error message
+  PaymentStatus status = 4;                   // Payment status
+  google.protobuf.Timestamp processed_at = 5; // When payment was processed
+  double processed_amount = 6;                // Actually processed amount
+  string currency = 7;                        // Currency used
+}
+
+// GetPaymentStatusRequest for checking payment status
+message GetPaymentStatusRequest {
+  string transaction_id = 1; // Transaction ID to check
+  string order_id = 2;       // Alternative: check by order ID
+}
+
+// GetPaymentStatusResponse contains payment status information
+message GetPaymentStatusResponse {
+  bool found = 1;                             // Whether payment was found
+  string transaction_id = 2;                  // Transaction identifier
+  string order_id = 3;                        // Associated order ID
+  PaymentStatus status = 4;                   // Current payment status
+  double amount = 5;                          // Payment amount
+  string currency = 6;                        // Currency code
+  google.protobuf.Timestamp created_at = 7;   // When payment was created
+  google.protobuf.Timestamp processed_at = 8; // When payment was processed
+  string message = 9;                         // Status message
+}
+
+// RefundPaymentRequest for processing refunds
+message RefundPaymentRequest {
+  string transaction_id = 1; // Original transaction ID
+  double amount = 2;         // Refund amount (can be partial)
+  string reason = 3;         // Refund reason
+  string requested_by = 4;   // User requesting refund
+}
+
+// RefundPaymentResponse contains refund processing result
+message RefundPaymentResponse {
+  bool success = 1;                           // Whether refund was successful
+  string refund_id = 2;                       // Unique refund identifier
+  string original_transaction_id = 3;         // Original transaction ID
+  double refunded_amount = 4;                 // Actually refunded amount
+  string message = 5;                         // Success or error message
+  google.protobuf.Timestamp processed_at = 6; // When refund was processed
+}
+
+// PaymentMethod represents different payment options
+message PaymentMethod {
+  PaymentType type = 1;
+  CreditCard credit_card = 2;
+  BankTransfer bank_transfer = 3;
+  DigitalWallet digital_wallet = 4;
+}
+
+// CreditCard payment method details
+message CreditCard {
+  string masked_number = 1;     // e.g., "**** **** **** 1234"
+  string expiry_month = 2;      // MM
+  string expiry_year = 3;       // YYYY
+  string cardholder_name = 4;   // Name on card
+  string brand = 5;             // Visa, MasterCard, etc.
+}
+
+// BankTransfer payment method details
+message BankTransfer {
+  string bank_name = 1;         // Name of the bank
+  string account_number = 2;    // Masked account number
+  string routing_number = 3;    // Bank routing number
+  string account_holder = 4;    // Account holder name
+}
+
+// DigitalWallet payment method details
+message DigitalWallet {
+  string provider = 1;          // PayPal, Apple Pay, Google Pay, etc.
+  string wallet_id = 2;         // Wallet identifier
+  string email = 3;             // Associated email (if applicable)
+}
+
+// PaymentType enum for different payment methods
+enum PaymentType {
+  PAYMENT_TYPE_UNSPECIFIED = 0;
+  PAYMENT_TYPE_CREDIT_CARD = 1;
+  PAYMENT_TYPE_BANK_TRANSFER = 2;
+  PAYMENT_TYPE_DIGITAL_WALLET = 3;
+}
+
+// PaymentStatus enum for tracking payment states
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED = 0;
+  PAYMENT_STATUS_PENDING = 1;      // Payment is being processed
+  PAYMENT_STATUS_COMPLETED = 2;    // Payment completed successfully
+  PAYMENT_STATUS_FAILED = 3;       // Payment failed
+  PAYMENT_STATUS_CANCELLED = 4;    // Payment was cancelled
+  PAYMENT_STATUS_REFUNDED = 5;     // Payment was refunded
+  PAYMENT_STATUS_PARTIAL_REFUND = 6; // Payment was partially refunded
+}
