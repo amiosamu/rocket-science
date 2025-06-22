@@ -1,0 +1,79 @@
+# Payment Service .dockerignore
+# Optimize Docker build context by excluding unnecessary files
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+*.md
+docs/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Go specific
+# Don't exclude go.mod and go.sum - we need them!
+vendor/
+
+# Build artifacts (if any)
+bin/
+dist/
+build/
+
+# Test files
+*_test.go
+testdata/
+coverage.out
+coverage.html
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Log files
+*.log
+logs/
+
+# Environment files (should not be in Docker image)
+.env
+.env.local
+.env.*.local
+
+# Docker files (don't need them in the image)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Deployment files
+deploy/
+k8s/
+helm/
+
+# Generated protobuf files (we generate them in Docker)
+*.pb.go
+
+# Air configuration for development
+.air.toml
