@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  # Kafka with KRaft (no Zookeeper needed)
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka
+    container_name: assembly-kafka-dev
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092'
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      # Cluster ID
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    volumes:
+      - kafka-dev-data:/tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - rocket-dev
+
+  # Kafka UI for development
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: assembly-kafka-ui-dev
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: dev-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    networks:
+      - rocket-dev
+
+  # Assembly Service
+  assembly-service:
+    build:
+      context: ../../
+      dockerfile: services/assembly-service/Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        BUILD_TIME: ${BUILD_TIME:-2024-01-01T00:00:00Z}
+        GIT_COMMIT: ${GIT_COMMIT:-dev}
+    container_name: assembly-service-dev
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      # Service configuration
+      ENVIRONMENT: development
+      PORT: 8083
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      LOG_FORMAT: json
+      GRACEFUL_TIMEOUT: 30s
+      
+      # Kafka configuration (simplified for dev)
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_CONSUMER_GROUP_ID: assembly-service-dev-group
+      KAFKA_TOPIC_PAYMENT_PROCESSED: payment.processed
+      KAFKA_TOPIC_ASSEMBLY_STARTED: assembly.started
+      KAFKA_TOPIC_ASSEMBLY_COMPLETED: assembly.completed
+      KAFKA_TOPIC_ASSEMBLY_FAILED: assembly.failed
+      KAFKA_INITIAL_OFFSET: latest
+      
+      # Assembly configuration
+      ASSEMBLY_SIMULATION_DURATION: ${ASSEMBLY_DURATION:-5s}
+      ASSEMBLY_MAX_CONCURRENT: ${ASSEMBLY_MAX_CONCURRENT:-5}
+      ASSEMBLY_FAILURE_RATE: ${ASSEMBLY_FAILURE_RATE:-0.1}
+      
+      # Metrics
+      METRICS_ENABLED: 'true'
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - rocket-dev
+
+volumes:
+  kafka-dev-data:
+    driver: local
+
+networks:
+  rocket-dev:
+    driver: bridge
+    name: rocket-dev-network 
