@@ -1,0 +1,290 @@
+syntax = "proto3";
+
+package inventory.v1;
+
+option go_package = "github.com/amiosamu/rocket-science/services/inventory-service/proto/inventory";
+
+import "google/protobuf/timestamp.proto";
+
+// InventoryService manages rocket parts inventory and stock reservations
+service InventoryService {
+  // CheckAvailability verifies if requested items are available in stock
+  rpc CheckAvailability(CheckAvailabilityRequest) returns (CheckAvailabilityResponse);
+  
+  // ReserveItems creates reservations for items in an order
+  rpc ReserveItems(ReserveItemsRequest) returns (ReserveItemsResponse);
+  
+  // ConfirmReservation confirms reserved items (after payment success)
+  rpc ConfirmReservation(ConfirmReservationRequest) returns (ConfirmReservationResponse);
+  
+  // ReleaseReservation releases reserved items (if payment fails)
+  rpc ReleaseReservation(ReleaseReservationRequest) returns (ReleaseReservationResponse);
+  
+  // GetItem retrieves details of a specific inventory item
+  rpc GetItem(GetItemRequest) returns (GetItemResponse);
+  
+  // SearchItems searches for items by name, SKU, or category
+  rpc SearchItems(SearchItemsRequest) returns (SearchItemsResponse);
+  
+  // GetLowStockItems retrieves items below minimum stock threshold
+  rpc GetLowStockItems(GetLowStockItemsRequest) returns (GetLowStockItemsResponse);
+  
+  // UpdateStock adds or removes stock (admin operation)
+  rpc UpdateStock(UpdateStockRequest) returns (UpdateStockResponse);
+  
+  // GetItemsByCategory retrieves items in a specific category
+  rpc GetItemsByCategory(GetItemsByCategoryRequest) returns (GetItemsByCategoryResponse);
+}
+
+// CheckAvailabilityRequest contains items to check for availability
+message CheckAvailabilityRequest {
+  repeated ItemAvailabilityCheck items = 1; // Items to check
+}
+
+// ItemAvailabilityCheck represents a single item availability check
+message ItemAvailabilityCheck {
+  string sku = 1;        // Item SKU to check
+  int32 quantity = 2;    // Quantity needed
+}
+
+// CheckAvailabilityResponse contains availability results
+message CheckAvailabilityResponse {
+  bool all_available = 1;                           // True if all items are available
+  repeated ItemAvailabilityResult results = 2;     // Per-item availability results
+  string message = 3;                               // Summary message
+}
+
+// ItemAvailabilityResult contains availability info for a single item
+message ItemAvailabilityResult {
+  string sku = 1;                    // Item SKU
+  string name = 2;                   // Item name
+  bool available = 3;                // Whether requested quantity is available
+  int32 requested_quantity = 4;      // Quantity requested
+  int32 available_quantity = 5;      // Quantity available
+  int32 reserved_quantity = 6;       // Quantity currently reserved
+  string reason = 7;                 // Reason if not available
+}
+
+// ReserveItemsRequest creates reservations for order items
+message ReserveItemsRequest {
+  string order_id = 1;                          // Order identifier
+  repeated ItemReservationRequest items = 2;    // Items to reserve
+  int32 reservation_duration_minutes = 3;       // How long to hold reservations
+}
+
+// ItemReservationRequest represents a single item reservation
+message ItemReservationRequest {
+  string sku = 1;        // Item SKU
+  int32 quantity = 2;    // Quantity to reserve
+}
+
+// ReserveItemsResponse contains reservation results
+message ReserveItemsResponse {
+  bool success = 1;                               // Whether all reservations succeeded
+  string reservation_id = 2;                      // Unique reservation identifier
+  repeated ItemReservationResult results = 3;    // Per-item reservation results
+  google.protobuf.Timestamp expires_at = 4;      // When reservations expire
+  string message = 5;                             // Result message
+}
+
+// ItemReservationResult contains reservation info for a single item
+message ItemReservationResult {
+  string sku = 1;                    // Item SKU
+  string name = 2;                   // Item name
+  bool reserved = 3;                 // Whether reservation succeeded
+  int32 quantity = 4;                // Quantity reserved
+  string reservation_id = 5;         // Individual reservation ID
+  string reason = 6;                 // Reason if reservation failed
+}
+
+// ConfirmReservationRequest confirms reserved items
+message ConfirmReservationRequest {
+  string order_id = 1;               // Order identifier
+  string reservation_id = 2;         // Reservation to confirm
+}
+
+// ConfirmReservationResponse contains confirmation result
+message ConfirmReservationResponse {
+  bool success = 1;                                   // Whether confirmation succeeded
+  repeated ItemConfirmationResult results = 2;       // Per-item confirmation results
+  google.protobuf.Timestamp confirmed_at = 3;        // When confirmed
+  string message = 4;                                 // Result message
+}
+
+// ItemConfirmationResult contains confirmation info for a single item
+message ItemConfirmationResult {
+  string sku = 1;                    // Item SKU
+  string name = 2;                   // Item name
+  bool confirmed = 3;                // Whether confirmation succeeded
+  int32 quantity = 4;                // Quantity confirmed
+  string reason = 5;                 // Reason if confirmation failed
+}
+
+// ReleaseReservationRequest releases reserved items
+message ReleaseReservationRequest {
+  string order_id = 1;               // Order identifier
+  string reservation_id = 2;         // Reservation to release
+  string reason = 3;                 // Reason for release
+}
+
+// ReleaseReservationResponse contains release result
+message ReleaseReservationResponse {
+  bool success = 1;                                 // Whether release succeeded
+  repeated ItemReleaseResult results = 2;          // Per-item release results
+  google.protobuf.Timestamp released_at = 3;       // When released
+  string message = 4;                               // Result message
+}
+
+// ItemReleaseResult contains release info for a single item
+message ItemReleaseResult {
+  string sku = 1;                    // Item SKU
+  string name = 2;                   // Item name
+  bool released = 3;                 // Whether release succeeded
+  int32 quantity = 4;                // Quantity released back to stock
+  string reason = 5;                 // Reason if release failed
+}
+
+// GetItemRequest retrieves a specific item
+message GetItemRequest {
+  oneof identifier {
+    string item_id = 1;              // Get by item ID
+    string sku = 2;                  // Get by SKU
+  }
+}
+
+// GetItemResponse contains item details
+message GetItemResponse {
+  bool found = 1;                    // Whether item was found
+  InventoryItem item = 2;            // Item details
+  string message = 3;                // Result message
+}
+
+// SearchItemsRequest searches for items
+message SearchItemsRequest {
+  string query = 1;                  // Search query (name, description, SKU)
+  ItemCategory category = 2;         // Filter by category (optional)
+  bool available_only = 3;           // Only return items with stock
+  int32 limit = 4;                   // Maximum results to return
+  int32 offset = 5;                  // Pagination offset
+}
+
+// SearchItemsResponse contains search results
+message SearchItemsResponse {
+  repeated InventoryItem items = 1;  // Found items
+  int32 total_count = 2;             // Total items matching criteria
+  bool has_more = 3;                 // Whether more results exist
+  string message = 4;                // Result message
+}
+
+// GetLowStockItemsRequest retrieves items below threshold
+message GetLowStockItemsRequest {
+  ItemCategory category = 1;         // Filter by category (optional)
+  int32 threshold_override = 2;      // Override default threshold
+}
+
+// GetLowStockItemsResponse contains low stock items
+message GetLowStockItemsResponse {
+  repeated LowStockItem items = 1;   // Items below threshold
+  int32 total_count = 2;             // Total low stock items
+  string message = 3;                // Result message
+}
+
+// LowStockItem represents an item below stock threshold
+message LowStockItem {
+  InventoryItem item = 1;            // Item details
+  int32 shortage_quantity = 2;       // How much below minimum
+  int32 days_of_stock = 3;          // Estimated days until out of stock
+}
+
+// UpdateStockRequest adds or removes stock
+message UpdateStockRequest {
+  string sku = 1;                    // Item SKU
+  int32 quantity_change = 2;         // Positive to add, negative to remove
+  string reason = 3;                 // Reason for stock change
+  string updated_by = 4;             // Who made the change
+}
+
+// UpdateStockResponse contains stock update result
+message UpdateStockResponse {
+  bool success = 1;                                 // Whether update succeeded
+  int32 old_stock_level = 2;                       // Stock level before update
+  int32 new_stock_level = 3;                       // Stock level after update
+  google.protobuf.Timestamp updated_at = 4;        // When updated
+  string message = 5;                               // Result message
+}
+
+// GetItemsByCategoryRequest retrieves items by category
+message GetItemsByCategoryRequest {
+  ItemCategory category = 1;         // Category to retrieve
+  bool available_only = 2;           // Only return items with stock
+  int32 limit = 3;                   // Maximum results to return
+  int32 offset = 4;                  // Pagination offset
+}
+
+// GetItemsByCategoryResponse contains category items
+message GetItemsByCategoryResponse {
+  repeated InventoryItem items = 1;  // Items in category
+  int32 total_count = 2;             // Total items in category
+  bool has_more = 3;                 // Whether more results exist
+  string message = 4;                // Result message
+}
+
+// Core data structures
+
+// InventoryItem represents a rocket part in inventory
+message InventoryItem {
+  string id = 1;                                    // Unique identifier
+  string sku = 2;                                   // Stock Keeping Unit
+  string name = 3;                                  // Human-readable name
+  string description = 4;                           // Detailed description
+  ItemCategory category = 5;                        // Item category
+  int32 stock_level = 6;                           // Available stock
+  int32 reserved_stock = 7;                        // Reserved stock
+  int32 total_stock = 8;                           // Total stock
+  int32 min_stock_level = 9;                       // Minimum threshold
+  int32 max_stock_level = 10;                      // Maximum capacity
+  Money unit_price = 11;                           // Price per unit
+  double weight = 12;                              // Weight in kg
+  Dimensions dimensions = 13;                       // Physical dimensions
+  map<string, string> specifications = 14;         // Technical specs
+  google.protobuf.Timestamp created_at = 15;       // Creation timestamp
+  google.protobuf.Timestamp updated_at = 16;       // Last update timestamp
+  int32 version = 17;                              // Version for optimistic locking
+  ItemStatus status = 18;                          // Current status
+}
+
+// Money represents currency amounts
+message Money {
+  double amount = 1;                 // Monetary amount
+  string currency = 2;               // Currency code (e.g., "USD")
+}
+
+// Dimensions represents physical dimensions
+message Dimensions {
+  double length = 1;                 // Length in meters
+  double width = 2;                  // Width in meters
+  double height = 3;                 // Height in meters
+}
+
+// ItemCategory enum for different types of rocket parts
+enum ItemCategory {
+  ITEM_CATEGORY_UNSPECIFIED = 0;
+  ITEM_CATEGORY_ENGINES = 1;         // Rocket engines
+  ITEM_CATEGORY_FUEL_TANKS = 2;      // Fuel storage tanks
+  ITEM_CATEGORY_NAVIGATION = 3;      // Navigation systems
+  ITEM_CATEGORY_STRUCTURAL = 4;      // Structural components
+  ITEM_CATEGORY_ELECTRONICS = 5;     // Electronic systems
+  ITEM_CATEGORY_LIFE_SUPPORT = 6;    // Life support systems
+  ITEM_CATEGORY_PAYLOAD = 7;         // Payload components
+  ITEM_CATEGORY_LANDING_GEAR = 8;    // Landing gear systems
+}
+
+// ItemStatus enum for item lifecycle states
+enum ItemStatus {
+  ITEM_STATUS_UNSPECIFIED = 0;
+  ITEM_STATUS_ACTIVE = 1;            // Available for orders
+  ITEM_STATUS_DISCONTINUED = 2;      // No longer available
+  ITEM_STATUS_OUT_OF_STOCK = 3;      // Temporarily out of stock
+  ITEM_STATUS_BACKORDERED = 4;       // On backorder
+  ITEM_STATUS_INCOMING = 5;          // New stock incoming
+}
