@@ -1,0 +1,328 @@
+static_resources:
+  listeners:
+  - name: listener_0
+    address:
+      socket_address:
+        protocol: TCP
+        address: 0.0.0.0
+        port_value: 10000
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_http
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: local_service
+              domains: ["*"]
+              routes:
+              # Order Service HTTP Routes
+              - match:
+                  prefix: "/api/orders"
+                route:
+                  cluster: order-service
+                  timeout: 30s
+                typed_per_filter_config:
+                  envoy.filters.http.lua:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                    inline_code: |
+                      function envoy_on_request(request_handle)
+                        -- Skip auth for health checks
+                        local path = request_handle:headers():get(":path")
+                        if path == "/health" or path == "/ready" then
+                          return
+                        end
+                        
+                        -- Extract session token from Authorization header or Cookie
+                        local auth_header = request_handle:headers():get("authorization")
+                        local session_token = nil
+                        
+                        if auth_header then
+                          session_token = string.match(auth_header, "Bearer%s+(.+)")
+                        else
+                          local cookie_header = request_handle:headers():get("cookie")
+                          if cookie_header then
+                            session_token = string.match(cookie_header, "session_token=([^;]+)")
+                          end
+                        end
+                        
+                        if not session_token then
+                          request_handle:respond(
+                            {[":status"] = "401"},
+                            "Unauthorized: Missing session token"
+                          )
+                          return
+                        end
+                        
+                        -- Validate session with IAM service
+                        local headers, body = request_handle:httpCall(
+                          "iam-service",
+                          {
+                            [":method"] = "POST",
+                            [":path"] = "/validate-session",
+                            [":authority"] = "iam-service",
+                            ["content-type"] = "application/json",
+                            ["authorization"] = "Bearer " .. session_token
+                          },
+                          '{"session_token":"' .. session_token .. '"}',
+                          5000
+                        )
+                        
+                        if not headers or headers[":status"] ~= "200" then
+                          request_handle:respond(
+                            {[":status"] = "401"},
+                            "Unauthorized: Invalid session"
+                          )
+                          return
+                        end
+                        
+                        -- Add user info to headers for downstream services
+                        if body then
+                          local user_data = json.decode(body)
+                          if user_data and user_data.user_id then
+                            request_handle:headers():add("x-user-id", user_data.user_id)
+                            request_handle:headers():add("x-user-email", user_data.email or "")
+                          end
+                        end
+                      end
+
+              # Health check route (no auth required)
+              - match:
+                  prefix: "/health"
+                route:
+                  cluster: order-service
+                  
+              # Payment Service gRPC Routes
+              - match:
+                  prefix: "/payment.PaymentService/"
+                  grpc: {}
+                route:
+                  cluster: payment-service
+                  timeout: 30s
+                typed_per_filter_config:
+                  envoy.filters.http.lua:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                    source:
+                      filename: "/etc/envoy/lua/auth_check.lua"
+
+              # Inventory Service gRPC Routes  
+              - match:
+                  prefix: "/inventory.InventoryService/"
+                  grpc: {}
+                route:
+                  cluster: inventory-service
+                  timeout: 30s
+                typed_per_filter_config:
+                  envoy.filters.http.lua:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                    source:
+                      filename: "/etc/envoy/lua/auth_check.lua"
+
+              # IAM Service gRPC Routes (some endpoints need auth, some don't)
+              - match:
+                  prefix: "/iam.IAMService/"
+                  grpc: {}
+                route:
+                  cluster: iam-service
+                  timeout: 30s
+
+              # Monitoring Routes (admin access - could add auth later)
+              - match:
+                  prefix: "/grafana"
+                route:
+                  cluster: grafana
+                  prefix_rewrite: "/"
+                  timeout: 30s
+                  
+              - match:
+                  prefix: "/jaeger"
+                route:
+                  cluster: jaeger
+                  prefix_rewrite: "/"
+                  timeout: 30s
+                  
+              - match:
+                  prefix: "/kibana"
+                route:
+                  cluster: kibana
+                  prefix_rewrite: "/"
+                  timeout: 30s
+                  
+              - match:
+                  prefix: "/prometheus"
+                route:
+                  cluster: prometheus
+                  prefix_rewrite: "/"
+                  timeout: 30s
+          
+          http_filters:
+          - name: envoy.filters.http.lua
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+              source:
+                filename: "/etc/envoy/lua/auth_check.lua"
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+  - name: order-service
+    connect_timeout: 30s
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: order-service
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: order-service
+                port_value: 8080
+    health_checks:
+    - timeout: 5s
+      interval: 10s
+      unhealthy_threshold: 3
+      healthy_threshold: 2
+      http_health_check:
+        path: "/health"
+
+  - name: payment-service
+    connect_timeout: 30s
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    http2_protocol_options: {}
+    load_assignment:
+      cluster_name: payment-service
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: payment-service
+                port_value: 50051
+    health_checks:
+    - timeout: 5s
+      interval: 10s
+      unhealthy_threshold: 3
+      healthy_threshold: 2
+      grpc_health_check:
+        service_name: "payment.PaymentService"
+
+  - name: inventory-service
+    connect_timeout: 30s
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    http2_protocol_options: {}
+    load_assignment:
+      cluster_name: inventory-service
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: inventory-service
+                port_value: 50052
+    health_checks:
+    - timeout: 5s
+      interval: 10s
+      unhealthy_threshold: 3
+      healthy_threshold: 2
+      grpc_health_check:
+        service_name: "inventory.InventoryService"
+
+  - name: iam-service
+    connect_timeout: 30s
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    http2_protocol_options: {}
+    load_assignment:
+      cluster_name: iam-service
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: iam-service
+                port_value: 50053
+    health_checks:
+    - timeout: 5s
+      interval: 10s
+      unhealthy_threshold: 3
+      healthy_threshold: 2
+      grpc_health_check:
+        service_name: "iam.IAMService"
+
+  # Monitoring clusters
+  - name: grafana
+    connect_timeout: 30s
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: grafana
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: grafana
+                port_value: 3000
+
+  - name: jaeger
+    connect_timeout: 30s
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: jaeger
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: jaeger
+                port_value: 16686
+
+  - name: kibana
+    connect_timeout: 30s
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: kibana
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: kibana
+                port_value: 5601
+
+  - name: prometheus
+    connect_timeout: 30s
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: prometheus
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: prometheus
+                port_value: 9090
+
+admin:
+  address:
+    socket_address:
+      protocol: TCP
+      address: 127.0.0.1
+      port_value: 9901
