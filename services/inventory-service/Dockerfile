@@ -84,8 +84,8 @@ RUN chown -R appuser:appgroup /app
 # Switch to non-root user
 USER appuser
 
-# Expose gRPC port
-EXPOSE 50053
+# Expose gRPC port and health port
+EXPOSE 50053 8080
 
 # Environment variables with defaults
 ENV INVENTORY_SERVICE_PORT=50053
@@ -135,8 +135,8 @@ RUN apk add --no-cache \
     make \
     curl
 
-# Install Go tools
-RUN go install github.com/cosmtrek/air@latest && \
+# Install Go tools with specific versions compatible with Go 1.23.2
+RUN go install github.com/cosmtrek/air@v1.49.0 && \
     go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 

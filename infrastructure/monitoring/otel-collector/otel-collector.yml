@@ -21,74 +21,74 @@ receivers:
         # Envoy Gateway metrics
         - job_name: 'envoy-gateway'
           static_configs:
-            - targets: ['envoy:9901']
+            - targets: ['rocket-envoy:9901']
           metrics_path: /stats/prometheus
           scrape_interval: 30s
 
         # IAM Service metrics
         - job_name: 'iam-service'
           static_configs:
-            - targets: ['iam-service:2112']
+            - targets: ['rocket-iam:9090']
           metrics_path: /metrics
           scrape_interval: 15s
 
         # Order Service metrics
         - job_name: 'order-service'
           static_configs:
-            - targets: ['order-service:2112']
+            - targets: ['rocket-order:9090']
           metrics_path: /metrics
           scrape_interval: 15s
 
         # Payment Service metrics
         - job_name: 'payment-service'
           static_configs:
-            - targets: ['payment-service:2112']
+            - targets: ['rocket-payment:9090']
           metrics_path: /metrics
           scrape_interval: 15s
 
         # Inventory Service metrics
         - job_name: 'inventory-service'
           static_configs:
-            - targets: ['inventory-service:2112']
+            - targets: ['rocket-inventory:9090']
           metrics_path: /metrics
           scrape_interval: 15s
 
         # Assembly Service metrics
         - job_name: 'assembly-service'
           static_configs:
-            - targets: ['assembly-service:2112']
+            - targets: ['rocket-assembly:9090']
           metrics_path: /metrics
           scrape_interval: 15s
 
         # Notification Service metrics
         - job_name: 'notification-service'
           static_configs:
-            - targets: ['notification-service:2112']
+            - targets: ['rocket-notification:9090']
           metrics_path: /metrics
           scrape_interval: 15s
 
         # Infrastructure metrics
         - job_name: 'kafka'
           static_configs:
-            - targets: ['kafka:9092']
+            - targets: ['rocket-kafka:9308']
           metrics_path: /metrics
           scrape_interval: 30s
 
         - job_name: 'postgres'
           static_configs:
-            - targets: ['postgres:5432']
+            - targets: ['rocket-postgres:9187']
           metrics_path: /metrics
           scrape_interval: 30s
 
         - job_name: 'mongodb'
           static_configs:
-            - targets: ['mongo:27017']
+            - targets: ['rocket-mongodb:9216']
           metrics_path: /metrics
           scrape_interval: 30s
 
         - job_name: 'redis'
           static_configs:
-            - targets: ['redis:6379']
+            - targets: ['rocket-redis:9121']
           metrics_path: /metrics
           scrape_interval: 30s
 
@@ -155,8 +155,6 @@ processors:
     actions:
       - key: http.user_agent
         action: delete
-        match_type: regexp
-        value: ".*"
       - key: net.peer.ip
         action: hash
       - key: enduser.id
@@ -167,9 +165,9 @@ processors:
     sampling_percentage: 10  # Sample 10% of traces in production
 
 exporters:
-  # Jaeger exporter for distributed tracing
-  jaeger:
-    endpoint: jaeger:14250
+  # OTLP exporter for Jaeger (replaces deprecated jaeger exporter)
+  otlp/jaeger:
+    endpoint: rocket-jaeger:14250
     tls:
       insecure: true
 
@@ -182,26 +180,19 @@ exporters:
 
   # Prometheus remote write for external Prometheus
   prometheusremotewrite:
-    endpoint: "http://prometheus:9090/api/v1/write"
+    endpoint: "http://rocket-prometheus:9090/api/v1/write"
     tls:
       insecure: true
 
   # Elasticsearch exporter for logs
   elasticsearch:
-    endpoints: ["http://elasticsearch:9200"]
+    endpoints: ["http://rocket-elasticsearch:9200"]
     logs_index: "rocket-science-logs"
-    http:
-      timeout: 30s
-      headers:
-        Content-Type: "application/json"
+    timeout: 30s
 
-  # File exporter for debugging (can be removed in production)
-  file:
-    path: /tmp/otel-output.json
-
-  # Logging exporter for debugging
-  logging:
-    loglevel: info
+  # Debug exporter for troubleshooting
+  debug:
+    verbosity: normal
     sampling_initial: 5
     sampling_thereafter: 200
 
@@ -214,19 +205,15 @@ extensions:
   pprof:
     endpoint: 0.0.0.0:1777
 
-  # Memory ballast extension
-  memory_ballast:
-    size_mib: 64
-
 service:
-  extensions: [health_check, pprof, memory_ballast]
+  extensions: [health_check, pprof]
   
   pipelines:
     # Traces pipeline
     traces:
       receivers: [otlp]
       processors: [memory_limiter, resource, span, attributes, probabilistic_sampler, batch]
-      exporters: [jaeger, logging]
+      exporters: [otlp/jaeger, debug]
 
     # Metrics pipeline  
     metrics:
@@ -238,10 +225,10 @@ service:
     logs:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters: [elasticsearch, file]
+      exporters: [elasticsearch]
 
   telemetry:
     logs:
       level: "info"
     metrics:
-      address: 0.0.0.0:8888
+      level: basic

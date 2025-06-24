@@ -53,21 +53,32 @@ func main() {
 	})
 
 	// Initialize metrics
+	logger.Info(ctx, "Initializing metrics...")
 	metrics, err := metrics.NewMetrics(serviceName)
 	if err != nil {
 		logger.Error(ctx, "Failed to create metrics", err)
 		os.Exit(1)
 	}
+	logger.Info(ctx, "Metrics initialized successfully")
 
 	// Initialize tracing
-	tracer, err := tracing.NewTracer(serviceName, serviceVersion, cfg.Observability.OTELEndpoint)
-	if err != nil {
-		logger.Error(ctx, "Failed to create tracer", err)
-		os.Exit(1)
+	logger.Info(ctx, "Initializing tracing...")
+	var tracer tracing.Tracer
+	if cfg.Observability.TracingEnabled {
+		tracer, err = tracing.NewTracer(serviceName, serviceVersion, cfg.Observability.OTELEndpoint)
+		if err != nil {
+			logger.Error(ctx, "Failed to create tracer", err)
+			os.Exit(1)
+		}
+	} else {
+		logger.Info(ctx, "Tracing disabled, using no-op tracer")
+		tracer = tracing.NewNoOpTracer()
 	}
 	defer tracer.Close()
+	logger.Info(ctx, "Tracing initialized successfully")
 
 	// Initialize database
+	logger.Info(ctx, "Connecting to database...")
 	dbConfig := postgresDB.Config{
 		Host:            cfg.Database.Host,
 		Port:            cfg.Database.Port,
@@ -87,18 +98,24 @@ func main() {
 		os.Exit(1)
 	}
 	defer dbConn.Close()
+	logger.Info(ctx, "Database connection established")
 
 	// Run database migrations
+	logger.Info(ctx, "Running database migrations...")
 	migrator := migrations.NewMigrator(dbConn.DB)
 	if err := migrator.Up(ctx); err != nil {
 		logger.Error(ctx, "Failed to run database migrations", err)
 		os.Exit(1)
 	}
+	logger.Info(ctx, "Database migrations completed")
 
 	// Initialize repository
+	logger.Info(ctx, "Initializing repository...")
 	orderRepo := postgres.NewOrderRepository(dbConn.DB)
+	logger.Info(ctx, "Repository initialized")
 
 	// Initialize external service clients
+	logger.Info(ctx, "Initializing external service clients...")
 	inventoryClient, err := clients.NewInventoryGRPCClient(
 		cfg.GRPC.InventoryService.Address,
 		cfg.GRPC.InventoryService.Timeout,
@@ -111,6 +128,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer inventoryClient.Close()
+	logger.Info(ctx, "Inventory client initialized")
 
 	paymentClient, err := clients.NewPaymentGRPCClient(
 		cfg.GRPC.PaymentService.Address,
@@ -124,8 +142,10 @@ func main() {
 		os.Exit(1)
 	}
 	defer paymentClient.Close()
+	logger.Info(ctx, "Payment client initialized")
 
 	// Initialize Kafka producer
+	logger.Info(ctx, "Initializing Kafka producer...")
 	kafkaProducer, err := kafka.NewProducer(
 		cfg.Kafka.Brokers,
 		cfg.Kafka.PaymentEventsTopic,
@@ -137,8 +157,10 @@ func main() {
 		os.Exit(1)
 	}
 	defer kafkaProducer.Close()
+	logger.Info(ctx, "Kafka producer initialized")
 
 	// Initialize order service
+	logger.Info(ctx, "Initializing order service...")
 	externalServices := service.ExternalServices{
 		InventoryClient: inventoryClient,
 		PaymentClient:   paymentClient,
@@ -146,8 +168,10 @@ func main() {
 	}
 
 	orderService := service.NewOrderService(orderRepo, externalServices, logger, metrics)
+	logger.Info(ctx, "Order service initialized")
 
 	// Initialize Kafka consumer for assembly events
+	logger.Info(ctx, "Initializing Kafka consumer...")
 	kafkaConsumer, err := kafka.NewConsumer(
 		cfg.Kafka.Brokers,
 		cfg.Kafka.ConsumerGroup,
@@ -160,15 +184,22 @@ func main() {
 		os.Exit(1)
 	}
 	defer kafkaConsumer.Close()
+	logger.Info(ctx, "Kafka consumer initialized")
 
 	// Initialize HTTP handlers
+	logger.Info(ctx, "Initializing HTTP handlers...")
 	orderHandler := handlers.NewOrderHandler(orderService, logger)
+	logger.Info(ctx, "HTTP handlers initialized")
 
 	// Initialize health server
+	logger.Info(ctx, "Initializing health server...")
 	healthServer := http.NewHealthServer(dbConn.DB, orderService, logger, metrics)
+	logger.Info(ctx, "Health server initialized")
 
 	// Initialize HTTP server
+	logger.Info(ctx, "Initializing HTTP server...")
 	httpServer := http.NewServer(cfg.Server, orderHandler, healthServer, logger, metrics)
+	logger.Info(ctx, "HTTP server initialized")
 
 	// Setup graceful shutdown
 	var wg sync.WaitGroup

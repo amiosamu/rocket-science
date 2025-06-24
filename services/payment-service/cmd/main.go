@@ -17,7 +17,7 @@ const (
 	// Service metadata
 	serviceName    = "payment-service"
 	serviceVersion = "1.0.0"
-	
+
 	// Shutdown timeout
 	shutdownTimeout = 30 * time.Second
 )
@@ -75,11 +75,6 @@ func initializeContainer(bootstrapLogger *slog.Logger) (*container.Container, er
 	// Validate configuration
 	if err := c.ValidateConfiguration(); err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
-	}
-
-	// Perform health check
-	if err := c.HealthCheck(); err != nil {
-		return nil, fmt.Errorf("health check failed: %w", err)
 	}
 
 	bootstrapLogger.Info("Container initialized successfully")
@@ -179,7 +174,7 @@ func printEnvironmentInfo(logger *slog.Logger) {
 // printServiceInfo logs detailed service information
 func printServiceInfo(logger *slog.Logger, c *container.Container) {
 	serviceInfo := c.GetServiceInfo()
-	
+
 	logger.Info("Service information",
 		"service_name", serviceInfo["service_name"],
 		"service_version", serviceInfo["service_version"],
@@ -275,12 +270,12 @@ func validateStartupRequirements() error {
 func handlePanic() {
 	if r := recover(); r != nil {
 		log.Printf("💥 PANIC: %v", r)
-		
+
 		// In production, you might want to:
 		// 1. Send panic info to monitoring system
 		// 2. Attempt graceful shutdown
 		// 3. Restart the service
-		
+
 		os.Exit(1)
 	}
 }

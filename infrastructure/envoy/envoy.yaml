@@ -24,69 +24,6 @@ static_resources:
                 route:
                   cluster: order-service
                   timeout: 30s
-                typed_per_filter_config:
-                  envoy.filters.http.lua:
-                    "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
-                    inline_code: |
-                      function envoy_on_request(request_handle)
-                        -- Skip auth for health checks
-                        local path = request_handle:headers():get(":path")
-                        if path == "/health" or path == "/ready" then
-                          return
-                        end
-                        
-                        -- Extract session token from Authorization header or Cookie
-                        local auth_header = request_handle:headers():get("authorization")
-                        local session_token = nil
-                        
-                        if auth_header then
-                          session_token = string.match(auth_header, "Bearer%s+(.+)")
-                        else
-                          local cookie_header = request_handle:headers():get("cookie")
-                          if cookie_header then
-                            session_token = string.match(cookie_header, "session_token=([^;]+)")
-                          end
-                        end
-                        
-                        if not session_token then
-                          request_handle:respond(
-                            {[":status"] = "401"},
-                            "Unauthorized: Missing session token"
-                          )
-                          return
-                        end
-                        
-                        -- Validate session with IAM service
-                        local headers, body = request_handle:httpCall(
-                          "iam-service",
-                          {
-                            [":method"] = "POST",
-                            [":path"] = "/validate-session",
-                            [":authority"] = "iam-service",
-                            ["content-type"] = "application/json",
-                            ["authorization"] = "Bearer " .. session_token
-                          },
-                          '{"session_token":"' .. session_token .. '"}',
-                          5000
-                        )
-                        
-                        if not headers or headers[":status"] ~= "200" then
-                          request_handle:respond(
-                            {[":status"] = "401"},
-                            "Unauthorized: Invalid session"
-                          )
-                          return
-                        end
-                        
-                        -- Add user info to headers for downstream services
-                        if body then
-                          local user_data = json.decode(body)
-                          if user_data and user_data.user_id then
-                            request_handle:headers():add("x-user-id", user_data.user_id)
-                            request_handle:headers():add("x-user-email", user_data.email or "")
-                          end
-                        end
-                      end
 
               # Health check route (no auth required)
               - match:
@@ -101,11 +38,6 @@ static_resources:
                 route:
                   cluster: payment-service
                   timeout: 30s
-                typed_per_filter_config:
-                  envoy.filters.http.lua:
-                    "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
-                    source:
-                      filename: "/etc/envoy/lua/auth_check.lua"
 
               # Inventory Service gRPC Routes  
               - match:
@@ -114,11 +46,6 @@ static_resources:
                 route:
                   cluster: inventory-service
                   timeout: 30s
-                typed_per_filter_config:
-                  envoy.filters.http.lua:
-                    "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
-                    source:
-                      filename: "/etc/envoy/lua/auth_check.lua"
 
               # IAM Service gRPC Routes (some endpoints need auth, some don't)
               - match:
@@ -161,8 +88,39 @@ static_resources:
           - name: envoy.filters.http.lua
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
-              source:
-                filename: "/etc/envoy/lua/auth_check.lua"
+              inline_code: |
+                function envoy_on_request(request_handle)
+                  local path = request_handle:headers():get(":path")
+                  
+                  -- Skip auth for health checks and monitoring routes
+                  if path == "/health" or path == "/ready" or 
+                     string.match(path, "^/grafana") or 
+                     string.match(path, "^/jaeger") or
+                     string.match(path, "^/kibana") or
+                     string.match(path, "^/prometheus") then
+                    return
+                  end
+                  
+                  -- Skip auth for IAM service (handles its own auth)
+                  if string.match(path, "^/iam%.") then
+                    return
+                  end
+                  
+                  -- Require auth for API routes and gRPC services
+                  if string.match(path, "^/api/") or 
+                     string.match(path, "^/payment%.") or 
+                     string.match(path, "^/inventory%.") then
+                    
+                    local auth_header = request_handle:headers():get("authorization")
+                    if not auth_header or not string.match(auth_header, "Bearer%s+.+") then
+                      request_handle:respond(
+                        {[":status"] = "401"},
+                        "Unauthorized: Missing or invalid token"
+                      )
+                      return
+                    end
+                  end
+                end
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -180,7 +138,7 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: order-service
+                address: rocket-order
                 port_value: 8080
     health_checks:
     - timeout: 5s
@@ -203,8 +161,8 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: payment-service
-                port_value: 50051
+                address: rocket-payment
+                port_value: 50052
     health_checks:
     - timeout: 5s
       interval: 10s
@@ -226,8 +184,8 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: inventory-service
-                port_value: 50052
+                address: rocket-inventory
+                port_value: 50053
     health_checks:
     - timeout: 5s
       interval: 10s
@@ -249,8 +207,8 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: iam-service
-                port_value: 50053
+                address: rocket-iam
+                port_value: 50051
     health_checks:
     - timeout: 5s
       interval: 10s
@@ -272,7 +230,7 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: grafana
+                address: rocket-grafana
                 port_value: 3000
 
   - name: jaeger
@@ -287,7 +245,7 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: jaeger
+                address: rocket-jaeger
                 port_value: 16686
 
   - name: kibana
@@ -302,7 +260,7 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: kibana
+                address: rocket-kibana
                 port_value: 5601
 
   - name: prometheus
@@ -317,7 +275,7 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: prometheus
+                address: rocket-prometheus
                 port_value: 9090
 
 admin:

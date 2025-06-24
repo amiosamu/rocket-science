@@ -30,11 +30,16 @@ type InventoryGRPCClient struct {
 
 // NewInventoryGRPCClient creates a new inventory gRPC client
 func NewInventoryGRPCClient(address string, timeout time.Duration, maxRetries int, retryDelay time.Duration, logger logging.Logger) (*InventoryGRPCClient, error) {
-	// Setup gRPC connection with options
+	logger.Info(context.Background(), "Connecting to inventory service", map[string]interface{}{
+		"address": address,
+		"timeout": timeout,
+	})
+
+	// Setup gRPC connection with options (remove WithBlock to prevent hanging)
 	conn, err := grpc.Dial(address,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithTimeout(timeout),
-		grpc.WithBlock(), // Wait for connection to be ready
+		// Remove grpc.WithBlock() and grpc.WithTimeout() to prevent startup hanging
+		// Connection will be established lazily when first RPC is made
 	)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to inventory service")
@@ -297,11 +302,16 @@ type PaymentGRPCClient struct {
 
 // NewPaymentGRPCClient creates a new payment gRPC client
 func NewPaymentGRPCClient(address string, timeout time.Duration, maxRetries int, retryDelay time.Duration, logger logging.Logger) (*PaymentGRPCClient, error) {
-	// Setup gRPC connection with options
+	logger.Info(context.Background(), "Connecting to payment service", map[string]interface{}{
+		"address": address,
+		"timeout": timeout,
+	})
+
+	// Setup gRPC connection with options (remove WithBlock to prevent hanging)
 	conn, err := grpc.Dial(address,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithTimeout(timeout),
-		grpc.WithBlock(), // Wait for connection to be ready
+		// Remove grpc.WithBlock() and grpc.WithTimeout() to prevent startup hanging
+		// Connection will be established lazily when first RPC is made
 	)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to payment service")

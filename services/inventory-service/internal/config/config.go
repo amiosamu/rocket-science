@@ -18,19 +18,20 @@ type Config struct {
 // ServerConfig contains gRPC server configuration
 type ServerConfig struct {
 	Port         string
+	HealthPort   string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 }
 
 // DatabaseConfig contains MongoDB connection settings
 type DatabaseConfig struct {
-	ConnectionURL    string
-	DatabaseName     string
-	ConnectTimeout   time.Duration
-	QueryTimeout     time.Duration
-	MaxPoolSize      int
-	MinPoolSize      int
-	MaxConnIdleTime  time.Duration
+	ConnectionURL   string
+	DatabaseName    string
+	ConnectTimeout  time.Duration
+	QueryTimeout    time.Duration
+	MaxPoolSize     int
+	MinPoolSize     int
+	MaxConnIdleTime time.Duration
 }
 
 // InventoryConfig contains inventory-specific settings
@@ -43,11 +44,11 @@ type InventoryConfig struct {
 
 // ObservabilityConfig contains observability settings
 type ObservabilityConfig struct {
-	LogLevel        string
-	MetricsEnabled  bool
-	TracingEnabled  bool
-	ServiceName     string
-	ServiceVersion  string
+	LogLevel       string
+	MetricsEnabled bool
+	TracingEnabled bool
+	ServiceName    string
+	ServiceVersion string
 }
 
 // Load reads configuration from environment variables
@@ -55,6 +56,7 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
 			Port:         getEnvOrDefault("INVENTORY_SERVICE_PORT", "50053"),
+			HealthPort:   getEnvOrDefault("INVENTORY_SERVICE_HEALTH_PORT", "8080"),
 			ReadTimeout:  parseDurationOrDefault("INVENTORY_SERVICE_READ_TIMEOUT", "30s"),
 			WriteTimeout: parseDurationOrDefault("INVENTORY_SERVICE_WRITE_TIMEOUT", "30s"),
 		},
@@ -74,11 +76,11 @@ func Load() (*Config, error) {
 			AutoRestockEnabled:    parseBoolOrDefault("INVENTORY_AUTO_RESTOCK_ENABLED", "false"),
 		},
 		Observability: ObservabilityConfig{
-			LogLevel:        getEnvOrDefault("LOG_LEVEL", "info"),
-			MetricsEnabled:  parseBoolOrDefault("METRICS_ENABLED", "true"),
-			TracingEnabled:  parseBoolOrDefault("TRACING_ENABLED", "true"),
-			ServiceName:     getEnvOrDefault("SERVICE_NAME", "inventory-service"),
-			ServiceVersion:  getEnvOrDefault("SERVICE_VERSION", "1.0.0"),
+			LogLevel:       getEnvOrDefault("LOG_LEVEL", "info"),
+			MetricsEnabled: parseBoolOrDefault("METRICS_ENABLED", "true"),
+			TracingEnabled: parseBoolOrDefault("TRACING_ENABLED", "true"),
+			ServiceName:    getEnvOrDefault("SERVICE_NAME", "inventory-service"),
+			ServiceVersion: getEnvOrDefault("SERVICE_VERSION", "1.0.0"),
 		},
 	}
 

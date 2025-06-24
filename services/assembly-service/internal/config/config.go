@@ -105,7 +105,7 @@ func DefaultConfig() *Config {
 				FlushMessages:      getEnvAsInt("KAFKA_PRODUCER_FLUSH_MESSAGES", 100),
 				CompressionType:    getEnv("KAFKA_PRODUCER_COMPRESSION", "snappy"),
 				IdempotentProducer: getEnvAsBool("KAFKA_PRODUCER_IDEMPOTENT", true),
-				RequiredAcks:       getEnvAsInt("KAFKA_PRODUCER_REQUIRED_ACKS", 1),
+				RequiredAcks:       getEnvAsInt("KAFKA_PRODUCER_REQUIRED_ACKS", -1),
 				MaxMessageBytes:    getEnvAsInt("KAFKA_PRODUCER_MAX_MESSAGE_BYTES", 1000000),
 				RequestTimeout:     getEnvAsDuration("KAFKA_PRODUCER_REQUEST_TIMEOUT", "30s"),
 			},

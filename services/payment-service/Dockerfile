@@ -87,8 +87,8 @@ RUN chown -R appuser:appgroup /app
 # Switch to non-root user
 USER appuser
 
-# Expose gRPC port
-EXPOSE 50052
+# Expose gRPC port and health port
+EXPOSE 50052 8081
 
 # Environment variables with defaults
 ENV PAYMENT_SERVICE_PORT=50052
@@ -101,7 +101,7 @@ ENV SERVICE_VERSION=1.0.0
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD curl -f http://localhost:8081/health || exit 1
 
 # Note: For gRPC health check, we'd need to implement HTTP health endpoint
 # or use grpc_health_probe. For now, using a placeholder.
@@ -124,8 +124,8 @@ RUN apk add --no-cache \
     make \
     curl
 
-# Install Go tools
-RUN go install github.com/cosmtrek/air@latest && \
+# Install Go tools with specific versions compatible with Go 1.23.2
+RUN go install github.com/cosmtrek/air@v1.49.0 && \
     go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 

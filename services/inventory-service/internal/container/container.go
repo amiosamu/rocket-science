@@ -12,6 +12,7 @@ import (
 	"github.com/amiosamu/rocket-science/services/inventory-service/internal/repository/mongodb"
 	"github.com/amiosamu/rocket-science/services/inventory-service/internal/service"
 	grpcTransport "github.com/amiosamu/rocket-science/services/inventory-service/internal/transport/grpc"
+	httpTransport "github.com/amiosamu/rocket-science/services/inventory-service/internal/transport/http"
 )
 
 // Container manages all dependencies for the Inventory Service
@@ -30,7 +31,8 @@ type Container struct {
 	inventoryService service.InventoryService
 
 	// Transport Layer
-	grpcServer *grpcTransport.Server
+	grpcServer   *grpcTransport.Server
+	healthServer *httpTransport.HealthServer
 
 	// Lifecycle management
 	initialized bool
@@ -134,6 +136,11 @@ func (c *Container) Start(ctx context.Context) error {
 
 	c.logger.Info("Starting Inventory Service")
 
+	// Start the HTTP health server
+	if err := c.healthServer.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start health server: %w", err)
+	}
+
 	// Start background jobs (reservation cleanup, etc.)
 	c.grpcServer.StartBackgroundJobs(ctx)
 
@@ -153,6 +160,13 @@ func (c *Container) Stop() {
 	}
 
 	c.logger.Info("Stopping Inventory Service")
+
+	// Stop HTTP health server
+	if c.healthServer != nil {
+		if err := c.healthServer.Stop(context.Background()); err != nil {
+			c.logger.Error("Failed to stop health server", "error", err)
+		}
+	}
 
 	// Stop gRPC server
 	if c.grpcServer != nil {
@@ -193,6 +207,11 @@ func (c *Container) GetInventoryService() service.InventoryService {
 // GetGRPCServer provides access to the gRPC server
 func (c *Container) GetGRPCServer() *grpcTransport.Server {
 	return c.grpcServer
+}
+
+// GetHealthServer provides access to the HTTP health server
+func (c *Container) GetHealthServer() *httpTransport.HealthServer {
+	return c.healthServer
 }
 
 // HealthCheck performs a health check on all components
@@ -365,12 +384,20 @@ func (c *Container) initializeServices() error {
 	return nil
 }
 
-// initializeTransport sets up all transport layers (gRPC)
+// initializeTransport sets up all transport layers (gRPC and HTTP health)
 func (c *Container) initializeTransport() error {
 	c.logger.Debug("Initializing transport layer")
 
 	// Create gRPC server with all dependencies
 	c.grpcServer = grpcTransport.NewServer(c.config, c.logger, c.inventoryService)
+
+	// Create HTTP health server
+	c.healthServer = httpTransport.NewHealthServer(
+		c.inventoryService,
+		c.repository,
+		c.logger,
+		c.config.Server.HealthPort,
+	)
 
 	c.logger.Debug("Transport layer initialized successfully")
 	return nil

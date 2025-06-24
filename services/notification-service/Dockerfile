@@ -13,6 +13,9 @@ COPY shared/ ./shared
 # Copy notification service to match the replace directive path ../../shared
 COPY services/notification-service/ ./services/notification-service
 
+# Copy IAM service for replace directive
+COPY services/iam-service/ ./services/iam-service
+
 # Set working directory to service
 WORKDIR /app/services/notification-service
 

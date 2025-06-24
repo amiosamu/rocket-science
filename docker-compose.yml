@@ -114,7 +114,7 @@ services:
       - IAM_JWT_SECRET=super-secure-production-jwt-secret-key-for-rocket-science-platform-2025
       - LOG_LEVEL=info
     ports:
-      - "8080:8080"
+      - "8082:8080"
       - "50051:50051"
     depends_on:
       postgres:
@@ -133,25 +133,24 @@ services:
     build:
       context: .
       dockerfile: ./services/inventory-service/Dockerfile
+      target: runtime
     container_name: rocket-inventory
     environment:
-      - INVENTORY_SERVER_PORT=8081
-      - INVENTORY_DATABASE_CONNECTION_URL=mongodb://admin:admin123@mongodb:27017
-      - INVENTORY_DATABASE_DATABASE_NAME=inventory_db
-      - INVENTORY_IAM_CLIENT_HOST=iam-service
-      - INVENTORY_IAM_CLIENT_PORT=8080
-      - INVENTORY_LOG_LEVEL=info
+      - INVENTORY_SERVICE_PORT=50053
+      - INVENTORY_SERVICE_HEALTH_PORT=8080
+      - MONGODB_CONNECTION_URL=mongodb://admin:admin123@mongodb:27017
+      - MONGODB_DATABASE_NAME=inventory_db
+      - LOG_LEVEL=info
     ports:
-      - "8081:8081"
+      - "8084:8080"
+      - "50053:50053"
     depends_on:
       mongodb:
-        condition: service_healthy
-      iam-service:
         condition: service_healthy
     networks:
       - rocket-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -160,18 +159,21 @@ services:
     build:
       context: .
       dockerfile: ./services/payment-service/Dockerfile
+      target: runtime
     container_name: rocket-payment
     environment:
-      - PAYMENT_SERVER_PORT=8083
+      - PAYMENT_SERVICE_PORT=50052
+      - PAYMENT_SERVICE_HEALTH_PORT=8081
       - PAYMENT_PROCESSING_TIME_MS=1000
       - PAYMENT_SUCCESS_RATE=0.9
-      - PAYMENT_LOG_LEVEL=info
+      - LOG_LEVEL=info
     ports:
-      - "8083:8083"
+      - "8081:8081"
+      - "50052:50052"
     networks:
       - rocket-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8084/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -182,19 +184,47 @@ services:
       dockerfile: ./services/order-service/Dockerfile
     container_name: rocket-order
     environment:
-      - ORDER_SERVER_HOST=0.0.0.0
-      - ORDER_SERVER_PORT=8085
-      - ORDER_DATABASE_HOST=postgres
-      - ORDER_DATABASE_PORT=5432
-      - ORDER_DATABASE_USER=rocket_user
-      - ORDER_DATABASE_PASSWORD=rocket_password
-      - ORDER_DATABASE_DBNAME=rocket_db
-      - ORDER_KAFKA_BROKERS=kafka:29092
-      - ORDER_GRPC_INVENTORY_ADDRESS=inventory-service:8081
-      - ORDER_GRPC_PAYMENT_ADDRESS=payment-service:8083
-      - ORDER_LOG_LEVEL=info
+      # Server Configuration
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+      - SERVER_READ_TIMEOUT=30s
+      - SERVER_WRITE_TIMEOUT=30s
+      - SERVER_IDLE_TIMEOUT=120s
+      # Database Configuration
+      - DB_HOST=rocket-postgres
+      - DB_PORT=5432
+      - DB_USER=rocket_user
+      - DB_PASSWORD=rocket_password
+      - DB_NAME=rocket_orders
+      - DB_SSL_MODE=disable
+      - DB_MAX_OPEN_CONNS=25
+      - DB_MAX_IDLE_CONNS=5
+      - DB_CONN_MAX_LIFETIME=5m
+      # Kafka Configuration
+      - KAFKA_BROKERS=rocket-kafka:29092
+      - KAFKA_PAYMENT_EVENTS_TOPIC=payment-events
+      - KAFKA_ASSEMBLY_EVENTS_TOPIC=assembly-events
+      - KAFKA_CONSUMER_GROUP=order-service
+      - KAFKA_PRODUCER_RETRIES=3
+      - KAFKA_CONSUMER_SESSION_TIMEOUT=30s
+      # External Services (gRPC)
+      - INVENTORY_SERVICE_ADDRESS=rocket-inventory:50053
+      - INVENTORY_SERVICE_TIMEOUT=10s
+      - INVENTORY_SERVICE_MAX_RETRIES=3
+      - INVENTORY_SERVICE_RETRY_INTERVAL=1s
+      - PAYMENT_SERVICE_ADDRESS=rocket-payment:50052
+      - PAYMENT_SERVICE_TIMEOUT=10s
+      - PAYMENT_SERVICE_MAX_RETRIES=3
+      - PAYMENT_SERVICE_RETRY_INTERVAL=1s
+      # Observability
+      - SERVICE_NAME=order-service
+      - SERVICE_VERSION=1.0.0
+      - METRICS_ENABLED=true
+      - TRACING_ENABLED=false
+      - LOG_LEVEL=info
+      - OTEL_ENDPOINT=http://rocket-otel-collector:4317
     ports:
-      - "8085:8085"
+      - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -207,7 +237,7 @@ services:
     networks:
       - rocket-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8085/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -218,22 +248,46 @@ services:
       dockerfile: ./services/assembly-service/Dockerfile
     container_name: rocket-assembly
     environment:
-      - ASSEMBLY_SERVICE_PORT=8086
-      - ASSEMBLY_KAFKA_BROKERS=kafka:29092
-      - ASSEMBLY_KAFKA_PAYMENT_TOPIC=payment-events
-      - ASSEMBLY_KAFKA_ASSEMBLY_STARTED_TOPIC=assembly-started
-      - ASSEMBLY_KAFKA_ASSEMBLY_COMPLETED_TOPIC=assembly-completed
-      - ASSEMBLY_KAFKA_ASSEMBLY_FAILED_TOPIC=assembly-failed
-      - ASSEMBLY_LOG_LEVEL=info
+      # Service Configuration
+      - PORT=8083
+      - ASSEMBLY_SERVICE_HEALTH_PORT=8083
+      - ENVIRONMENT=production
+      - GRACEFUL_TIMEOUT=30s
+      # Kafka Configuration  
+      - KAFKA_BROKERS=rocket-kafka:29092
+      - KAFKA_CONSUMER_GROUP_ID=assembly-service-group
+      - KAFKA_CONSUMER_CLIENT_ID=assembly-service-consumer
+      - KAFKA_PRODUCER_CLIENT_ID=assembly-service-producer
+      - KAFKA_PRODUCER_REQUIRED_ACKS=-1
+      - KAFKA_PRODUCER_IDEMPOTENT=true
+      - KAFKA_PRODUCER_MAX_RETRIES=3
+      - KAFKA_PRODUCER_RETRY_BACKOFF=100ms
+      # Kafka Topics
+      - KAFKA_TOPIC_PAYMENT_PROCESSED=payment.processed
+      - KAFKA_TOPIC_ASSEMBLY_STARTED=assembly.started  
+      - KAFKA_TOPIC_ASSEMBLY_COMPLETED=assembly.completed
+      - KAFKA_TOPIC_ASSEMBLY_FAILED=assembly.failed
+      # Assembly Configuration
+      - ASSEMBLY_SIMULATION_DURATION=10s
+      - ASSEMBLY_MAX_CONCURRENT=10
+      - ASSEMBLY_FAILURE_RATE=0.05
+      # Logging
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - LOG_OUTPUT=stdout
+      # Metrics
+      - METRICS_ENABLED=true
+      - METRICS_PORT=9090
+      - METRICS_PATH=/metrics
     ports:
-      - "8086:8086"
+      - "8083:8083"
     depends_on:
       kafka:
         condition: service_healthy
     networks:
       - rocket-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8087/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8083/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -268,8 +322,8 @@ services:
   # API Gateway
   envoy:
     build:
-      context: .
-      dockerfile: ./infrastructure/envoy/Dockerfile
+      context: ./infrastructure/envoy
+      dockerfile: Dockerfile
     container_name: rocket-envoy
     ports:
       - "80:8080"   # HTTP

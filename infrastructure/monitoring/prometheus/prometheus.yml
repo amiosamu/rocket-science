@@ -28,7 +28,7 @@ scrape_configs:
   # OpenTelemetry Collector metrics
   - job_name: 'otel-collector'
     static_configs:
-      - targets: ['otel-collector:8888', 'otel-collector:8889']
+      - targets: ['rocket-otel-collector:8888', 'rocket-otel-collector:8889']
     scrape_interval: 15s
     metrics_path: /metrics
 
@@ -37,7 +37,7 @@ scrape_configs:
   # Envoy Gateway
   - job_name: 'envoy-gateway'
     static_configs:
-      - targets: ['envoy:9901']
+      - targets: ['rocket-envoy:9901']
     scrape_interval: 15s
     metrics_path: /stats/prometheus
     relabel_configs:
@@ -51,7 +51,7 @@ scrape_configs:
   # IAM Service
   - job_name: 'iam-service'
     static_configs:
-      - targets: ['iam-service:2112']
+      - targets: ['rocket-iam:9090']
     scrape_interval: 15s
     metrics_path: /metrics
     relabel_configs:
@@ -62,7 +62,7 @@ scrape_configs:
   # Order Service
   - job_name: 'order-service'
     static_configs:
-      - targets: ['order-service:2112']
+      - targets: ['rocket-order:9090']
     scrape_interval: 15s
     metrics_path: /metrics
     relabel_configs:
@@ -73,7 +73,7 @@ scrape_configs:
   # Payment Service
   - job_name: 'payment-service'
     static_configs:
-      - targets: ['payment-service:2112']
+      - targets: ['rocket-payment:9090']
     scrape_interval: 15s
     metrics_path: /metrics
     relabel_configs:
@@ -84,7 +84,7 @@ scrape_configs:
   # Inventory Service
   - job_name: 'inventory-service'
     static_configs:
-      - targets: ['inventory-service:2112']
+      - targets: ['rocket-inventory:9090']
     scrape_interval: 15s
     metrics_path: /metrics
     relabel_configs:
@@ -95,7 +95,7 @@ scrape_configs:
   # Assembly Service
   - job_name: 'assembly-service'
     static_configs:
-      - targets: ['assembly-service:2112']
+      - targets: ['rocket-assembly:9090']
     scrape_interval: 15s
     metrics_path: /metrics
     relabel_configs:
@@ -106,7 +106,7 @@ scrape_configs:
   # Notification Service
   - job_name: 'notification-service'
     static_configs:
-      - targets: ['notification-service:2112']
+      - targets: ['rocket-notification:9090']
     scrape_interval: 15s
     metrics_path: /metrics
     relabel_configs:
@@ -119,7 +119,7 @@ scrape_configs:
   # PostgreSQL
   - job_name: 'postgres'
     static_configs:
-      - targets: ['postgres:5432']
+      - targets: ['rocket-postgres:9187']
     scrape_interval: 30s
     metrics_path: /metrics
     relabel_configs:
@@ -130,7 +130,7 @@ scrape_configs:
   # MongoDB
   - job_name: 'mongodb'
     static_configs:
-      - targets: ['mongo:27017']
+      - targets: ['rocket-mongodb:9216']
     scrape_interval: 30s
     metrics_path: /metrics
     relabel_configs:
@@ -141,7 +141,7 @@ scrape_configs:
   # Redis
   - job_name: 'redis'
     static_configs:
-      - targets: ['redis:6379']
+      - targets: ['rocket-redis:9121']
     scrape_interval: 30s
     metrics_path: /metrics
     relabel_configs:
@@ -152,7 +152,7 @@ scrape_configs:
   # Kafka
   - job_name: 'kafka'
     static_configs:
-      - targets: ['kafka:9092']
+      - targets: ['rocket-kafka:9308']
     scrape_interval: 30s
     metrics_path: /metrics
     relabel_configs:
@@ -165,7 +165,7 @@ scrape_configs:
   # Grafana
   - job_name: 'grafana'
     static_configs:
-      - targets: ['grafana:3000']
+      - targets: ['rocket-grafana:3000']
     scrape_interval: 60s
     metrics_path: /metrics
     relabel_configs:
@@ -176,7 +176,7 @@ scrape_configs:
   # Jaeger
   - job_name: 'jaeger'
     static_configs:
-      - targets: ['jaeger:16686']
+      - targets: ['rocket-jaeger:14269']
     scrape_interval: 60s
     metrics_path: /metrics
     relabel_configs:
@@ -187,7 +187,7 @@ scrape_configs:
   # Elasticsearch
   - job_name: 'elasticsearch'
     static_configs:
-      - targets: ['elasticsearch:9200']
+      - targets: ['rocket-elasticsearch:9200']
     scrape_interval: 60s
     metrics_path: /_prometheus/metrics
     relabel_configs:
@@ -198,7 +198,7 @@ scrape_configs:
   # Kibana
   - job_name: 'kibana'
     static_configs:
-      - targets: ['kibana:5601']
+      - targets: ['rocket-kibana:5601']
     scrape_interval: 60s
     metrics_path: /api/status
     relabel_configs:
@@ -206,55 +206,8 @@ scrape_configs:
         target_label: service
         replacement: 'kibana'
 
-# Recording rules for pre-computing frequently used queries
-recording_rules:
-  - name: rocket_science_aggregations
-    interval: 30s
-    rules:
-      # HTTP request rate by service
-      - record: rocket_science:http_requests_per_second
-        expr: rate(http_requests_total[5m])
-        labels:
-          aggregation: rate
-
-      # HTTP error rate by service
-      - record: rocket_science:http_error_rate
-        expr: rate(http_requests_total{status=~"4..|5.."}[5m]) / rate(http_requests_total[5m])
-        labels:
-          aggregation: error_rate
-
-      # HTTP response time 95th percentile
-      - record: rocket_science:http_response_time_95th
-        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
-        labels:
-          aggregation: p95
-
-      # gRPC request rate by service
-      - record: rocket_science:grpc_requests_per_second
-        expr: rate(grpc_server_handled_total[5m])
-        labels:
-          aggregation: rate
-
-      # Database connection pool usage
-      - record: rocket_science:db_connection_pool_usage
-        expr: db_connections_active / db_connections_max
-        labels:
-          aggregation: utilization
-
-      # Kafka consumer lag
-      - record: rocket_science:kafka_consumer_lag_total
-        expr: sum(kafka_consumer_lag_sum) by (service, topic)
-        labels:
-          aggregation: sum
-
-# Storage configuration
-storage:
-  tsdb:
-    retention.time: 15d
-    retention.size: 10GB
-    min-block-duration: 2h
-    max-block-duration: 25h
-    wal-compression: true
+# Note: Recording rules should be in separate files under rules/ directory
+# This section is removed from the main config file
 
 # Remote storage configuration (for long-term storage)
 # remote_storage:
