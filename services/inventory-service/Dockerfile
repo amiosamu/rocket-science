@@ -4,7 +4,7 @@
 # ============================================================================
 # Build Stage
 # ============================================================================
-FROM golang:1.21-alpine AS builder
+FROM golang:1.23.2-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache \
@@ -17,18 +17,21 @@ RUN apk add --no-cache \
 # Set working directory
 WORKDIR /build
 
-# Copy go mod files first for better layer caching
-COPY go.mod go.sum ./
+# Copy shared module first (for replace directive)
+COPY shared/ ./shared
 
-# Download dependencies
+# Copy inventory service to match the replace directive path ../../shared
+COPY services/inventory-service/ ./services/inventory-service
+
+# Set working directory to service
+WORKDIR /build/services/inventory-service
+
+# Download dependencies (go.mod and go.sum are already copied with the service)
 RUN go mod download
 
 # Install protobuf Go plugins
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-
-# Copy source code
-COPY . .
 
 # Generate protobuf code
 RUN find proto -name "*.proto" -exec protoc \
@@ -73,7 +76,7 @@ ENV TZ=UTC
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /build/inventory-service .
+COPY --from=builder /build/services/inventory-service/inventory-service .
 
 # Change ownership to non-root user
 RUN chown -R appuser:appgroup /app
@@ -120,7 +123,7 @@ ENTRYPOINT ["./inventory-service"]
 # ============================================================================
 # Development Stage (optional)
 # ============================================================================
-FROM golang:1.21-alpine AS development
+FROM golang:1.23.2-alpine AS development
 
 # Install development tools
 RUN apk add --no-cache \

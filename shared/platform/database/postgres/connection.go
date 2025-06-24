@@ -26,7 +26,11 @@ type Config struct {
 	MaxOpenConns    int           `json:"max_open_conns"`
 	MaxIdleConns    int           `json:"max_idle_conns"`
 	ConnMaxLifetime time.Duration `json:"conn_max_lifetime"`
-	ConnectTimeout  time.Duration `json:"connect_timeout"`
+	// Driver-level timeout configurations
+	ConnectTimeout time.Duration `json:"connect_timeout"`
+	QueryTimeout   time.Duration `json:"query_timeout"`
+	ReadTimeout    time.Duration `json:"read_timeout"`
+	WriteTimeout   time.Duration `json:"write_timeout"`
 }
 
 // DefaultConfig returns a default PostgreSQL configuration
@@ -42,13 +46,33 @@ func DefaultConfig() Config {
 		MaxIdleConns:    5,
 		ConnMaxLifetime: 5 * time.Minute,
 		ConnectTimeout:  30 * time.Second,
+		QueryTimeout:    10 * time.Second,
+		ReadTimeout:     10 * time.Second,
+		WriteTimeout:    10 * time.Second,
 	}
 }
 
 // DSN returns the PostgreSQL connection string
 func (c Config) DSN() string {
-	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s connect_timeout=%d",
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s connect_timeout=%d",
 		c.Host, c.Port, c.User, c.Password, c.DBName, c.SSLMode, int(c.ConnectTimeout.Seconds()))
+
+	// Add statement timeout (equivalent to query timeout)
+	if c.QueryTimeout > 0 {
+		dsn += fmt.Sprintf(" statement_timeout=%d", int(c.QueryTimeout.Milliseconds()))
+	}
+
+	// Add lock timeout (using read timeout as lock timeout)
+	if c.ReadTimeout > 0 {
+		dsn += fmt.Sprintf(" lock_timeout=%d", int(c.ReadTimeout.Milliseconds()))
+	}
+
+	// Add idle in transaction timeout (using write timeout)
+	if c.WriteTimeout > 0 {
+		dsn += fmt.Sprintf(" idle_in_transaction_session_timeout=%d", int(c.WriteTimeout.Milliseconds()))
+	}
+
+	return dsn
 }
 
 // Connection manages a PostgreSQL database connection
@@ -60,13 +84,40 @@ type Connection struct {
 
 // NewConnection creates a new PostgreSQL connection
 func NewConnection(config Config, logger logging.Logger) (*Connection, error) {
+	// Log connection attempt with timeout configurations
+	logger.Info(context.Background(), "Attempting PostgreSQL connection", map[string]interface{}{
+		"host":              config.Host,
+		"port":              config.Port,
+		"database":          config.DBName,
+		"connect_timeout":   config.ConnectTimeout,
+		"query_timeout":     config.QueryTimeout,
+		"read_timeout":      config.ReadTimeout,
+		"write_timeout":     config.WriteTimeout,
+		"max_open_conns":    config.MaxOpenConns,
+		"max_idle_conns":    config.MaxIdleConns,
+		"conn_max_lifetime": config.ConnMaxLifetime,
+	})
+
+	// Create DSN with all timeout parameters
+	dsn := config.DSN()
+	logger.Debug(context.Background(), "PostgreSQL DSN constructed", map[string]interface{}{
+		"dsn_params": dsn,
+	})
+
 	// Create context with timeout for connection
 	ctx, cancel := context.WithTimeout(context.Background(), config.ConnectTimeout)
 	defer cancel()
 
-	// Open database connection
-	db, err := sqlx.ConnectContext(ctx, "postgres", config.DSN())
+	// Open database connection with enhanced error handling
+	db, err := sqlx.ConnectContext(ctx, "postgres", dsn)
 	if err != nil {
+		logger.Error(context.Background(), "Failed to establish PostgreSQL connection", err, map[string]interface{}{
+			"host":            config.Host,
+			"port":            config.Port,
+			"database":        config.DBName,
+			"connect_timeout": config.ConnectTimeout,
+			"dsn_used":        dsn,
+		})
 		return nil, errors.Wrap(err, "failed to connect to PostgreSQL")
 	}
 
@@ -75,19 +126,33 @@ func NewConnection(config Config, logger logging.Logger) (*Connection, error) {
 	db.SetMaxIdleConns(config.MaxIdleConns)
 	db.SetConnMaxLifetime(config.ConnMaxLifetime)
 
-	// Test connection
-	if err := db.PingContext(ctx); err != nil {
+	// Test connection with timeout
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer pingCancel()
+
+	if err := db.PingContext(pingCtx); err != nil {
 		db.Close()
+		logger.Error(context.Background(), "PostgreSQL ping failed after connection", err, map[string]interface{}{
+			"host":     config.Host,
+			"port":     config.Port,
+			"database": config.DBName,
+		})
 		return nil, errors.Wrap(err, "failed to ping PostgreSQL database")
 	}
 
-	logger.Info(ctx, "PostgreSQL connection established", map[string]interface{}{
+	logger.Info(context.Background(), "PostgreSQL connection established successfully", map[string]interface{}{
 		"host":              config.Host,
 		"port":              config.Port,
 		"database":          config.DBName,
 		"max_open_conns":    config.MaxOpenConns,
 		"max_idle_conns":    config.MaxIdleConns,
 		"conn_max_lifetime": config.ConnMaxLifetime,
+		"timeouts_configured": map[string]interface{}{
+			"connect_timeout": config.ConnectTimeout,
+			"query_timeout":   config.QueryTimeout,
+			"read_timeout":    config.ReadTimeout,
+			"write_timeout":   config.WriteTimeout,
+		},
 	})
 
 	return &Connection{

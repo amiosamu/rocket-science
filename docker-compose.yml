@@ -89,23 +89,33 @@ services:
   # Core Services
   iam-service:
     build:
-      context: ./services/iam-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./services/iam-service/Dockerfile
     container_name: rocket-iam
     environment:
       - IAM_SERVER_HOST=0.0.0.0
-      - IAM_SERVER_PORT=8080
-      - IAM_DATABASE_HOST=postgres
-      - IAM_DATABASE_PORT=5432
-      - IAM_DATABASE_USER=rocket_user
-      - IAM_DATABASE_PASSWORD=rocket_password
-      - IAM_DATABASE_DBNAME=rocket_db
-      - IAM_REDIS_HOST=redis
+      - IAM_SERVER_PORT=50051
+      - IAM_DB_HOST=rocket-postgres
+      - IAM_DB_PORT=5432
+      - IAM_DB_USER=rocket_user
+      - IAM_DB_PASSWORD=rocket_password
+      - IAM_DB_NAME=rocket_iam
+      - IAM_DB_SSL_MODE=disable
+      - IAM_DB_MAX_OPEN_CONNS=25
+      - IAM_DB_MAX_IDLE_CONNS=5
+      - IAM_DB_CONN_MAX_LIFETIME=5m
+      # Driver-level timeout configurations
+      - IAM_DB_CONNECT_TIMEOUT=10s
+      - IAM_DB_QUERY_TIMEOUT=10s
+      - IAM_DB_READ_TIMEOUT=5s
+      - IAM_DB_WRITE_TIMEOUT=5s
+      - IAM_REDIS_HOST=rocket-redis
       - IAM_REDIS_PORT=6379
-      - IAM_JWT_SECRET=your-super-secret-jwt-key-change-in-production
-      - IAM_LOG_LEVEL=info
+      - IAM_JWT_SECRET=super-secure-production-jwt-secret-key-for-rocket-science-platform-2025
+      - LOG_LEVEL=info
     ports:
       - "8080:8080"
+      - "50051:50051"
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,15 +124,15 @@ services:
     networks:
       - rocket-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "sh", "-c", "ps aux | grep '[i]am-service' > /dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
 
   inventory-service:
     build:
-      context: ./services/inventory-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./services/inventory-service/Dockerfile
     container_name: rocket-inventory
     environment:
       - INVENTORY_SERVER_PORT=8081
@@ -148,8 +158,8 @@ services:
 
   payment-service:
     build:
-      context: ./services/payment-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./services/payment-service/Dockerfile
     container_name: rocket-payment
     environment:
       - PAYMENT_SERVER_PORT=8083
@@ -168,8 +178,8 @@ services:
 
   order-service:
     build:
-      context: ./services/order-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./services/order-service/Dockerfile
     container_name: rocket-order
     environment:
       - ORDER_SERVER_HOST=0.0.0.0
@@ -204,8 +214,8 @@ services:
 
   assembly-service:
     build:
-      context: ./services/assembly-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./services/assembly-service/Dockerfile
     container_name: rocket-assembly
     environment:
       - ASSEMBLY_SERVICE_PORT=8086
@@ -230,8 +240,8 @@ services:
 
   notification-service:
     build:
-      context: ./services/notification-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./services/notification-service/Dockerfile
     container_name: rocket-notification
     environment:
       - NOTIFICATION_SERVICE_PORT=8088
@@ -258,8 +268,8 @@ services:
   # API Gateway
   envoy:
     build:
-      context: ./infrastructure/envoy
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./infrastructure/envoy/Dockerfile
     container_name: rocket-envoy
     ports:
       - "80:8080"   # HTTP

@@ -36,6 +36,11 @@ type DatabaseConfig struct {
 	MaxOpenConns    int           `json:"max_open_conns"`
 	MaxIdleConns    int           `json:"max_idle_conns"`
 	ConnMaxLifetime time.Duration `json:"conn_max_lifetime"`
+	// Driver-level timeout configurations
+	ConnectTimeout time.Duration `json:"connect_timeout"`
+	QueryTimeout   time.Duration `json:"query_timeout"`
+	ReadTimeout    time.Duration `json:"read_timeout"`
+	WriteTimeout   time.Duration `json:"write_timeout"`
 }
 
 // RedisConfig holds Redis configuration for session storage
@@ -104,6 +109,10 @@ func Load() (*Config, error) {
 			MaxOpenConns:    getEnvAsInt("IAM_DB_MAX_OPEN_CONNS", 25),
 			MaxIdleConns:    getEnvAsInt("IAM_DB_MAX_IDLE_CONNS", 5),
 			ConnMaxLifetime: getEnvAsDuration("IAM_DB_CONN_MAX_LIFETIME", "5m"),
+			ConnectTimeout:  getEnvAsDuration("IAM_DB_CONNECT_TIMEOUT", "5s"),
+			QueryTimeout:    getEnvAsDuration("IAM_DB_QUERY_TIMEOUT", "5s"),
+			ReadTimeout:     getEnvAsDuration("IAM_DB_READ_TIMEOUT", "3s"),
+			WriteTimeout:    getEnvAsDuration("IAM_DB_WRITE_TIMEOUT", "3s"),
 		},
 		Redis: RedisConfig{
 			Host:         getEnv("IAM_REDIS_HOST", "localhost"),

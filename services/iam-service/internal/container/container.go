@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/redis/go-redis/v9"
@@ -127,7 +129,7 @@ func (c *Container) initDatabases() error {
 	return nil
 }
 
-// initPostgreSQL initializes PostgreSQL database connection
+// initPostgreSQL initializes PostgreSQL database connection with retry logic
 func (c *Container) initPostgreSQL() error {
 	dbConfig := sharedPostgres.Config{
 		Host:            c.Config.Database.Host,
@@ -139,17 +141,61 @@ func (c *Container) initPostgreSQL() error {
 		ConnMaxLifetime: c.Config.Database.ConnMaxLifetime,
 		MaxOpenConns:    c.Config.Database.MaxOpenConns,
 		MaxIdleConns:    c.Config.Database.MaxIdleConns,
+		// Driver-level timeout configurations
+		ConnectTimeout: c.Config.Database.ConnectTimeout,
+		QueryTimeout:   c.Config.Database.QueryTimeout,
+		ReadTimeout:    c.Config.Database.ReadTimeout,
+		WriteTimeout:   c.Config.Database.WriteTimeout,
 	}
 
-	conn, err := sharedPostgres.NewConnection(dbConfig, c.Logger)
+	// Retry configuration
+	maxRetries := 10
+	baseDelay := time.Second * 2
+	maxDelay := time.Second * 60
+
+	log.Printf("Attempting to connect to PostgreSQL: %s:%d/%s",
+		dbConfig.Host, dbConfig.Port, dbConfig.DBName)
+
+	var conn *sharedPostgres.Connection
+	var err error
+
+	// Retry connection with exponential backoff
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		conn, err = sharedPostgres.NewConnection(dbConfig, c.Logger)
+		if err == nil {
+			// Test the connection with a simple ping
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			pingErr := conn.HealthCheck(ctx)
+			cancel()
+			if pingErr == nil {
+				break
+			}
+			conn.Close() // Close failed connection
+			err = fmt.Errorf("connection ping failed: %w", pingErr)
+		}
+
+		// Calculate delay with exponential backoff
+		delay := time.Duration(float64(baseDelay) * math.Pow(2, float64(attempt)))
+		if delay > maxDelay {
+			delay = maxDelay
+		}
+
+		log.Printf("PostgreSQL connection attempt %d/%d failed: %v. Retrying in %v...",
+			attempt+1, maxRetries, err, delay)
+
+		if attempt < maxRetries-1 {
+			time.Sleep(delay)
+		}
+	}
+
 	if err != nil {
-		return fmt.Errorf("failed to create PostgreSQL connection: %w", err)
+		return fmt.Errorf("failed to create PostgreSQL connection after %d attempts: %w", maxRetries, err)
 	}
 
 	c.PostgresConn = conn
 	c.PostgresDB = conn.DB // Extract the underlying *sqlx.DB
 
-	log.Printf("PostgreSQL connection established: %s:%d/%s",
+	log.Printf("PostgreSQL connection established successfully: %s:%d/%s",
 		dbConfig.Host, dbConfig.Port, dbConfig.DBName)
 	return nil
 }

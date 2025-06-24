@@ -7,15 +7,17 @@ RUN apk add --no-cache git ca-certificates
 # Set working directory
 WORKDIR /app
 
-# Copy go mod files
-COPY go.mod go.sum ./
-COPY ../../shared/go.mod ../../shared/go.sum ../../shared/
+# Copy shared module first (for replace directive)
+COPY shared/ ./shared
 
-# Download dependencies
+# Copy notification service to match the replace directive path ../../shared
+COPY services/notification-service/ ./services/notification-service
+
+# Set working directory to service
+WORKDIR /app/services/notification-service
+
+# Download dependencies (go.mod and go.sum are already copied with the service)
 RUN go mod download
-
-# Copy source code
-COPY . .
 
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o notification-service ./cmd/main.go
@@ -34,7 +36,7 @@ RUN addgroup -g 1001 app && \
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /app/notification-service .
+COPY --from=builder /app/services/notification-service/notification-service .
 
 # Change ownership
 RUN chown -R app:app /app

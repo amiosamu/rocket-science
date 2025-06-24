@@ -7,14 +7,11 @@ RUN apk add --no-cache git ca-certificates tzdata make
 # Set working directory
 WORKDIR /workspace
 
-# Copy go.work files for workspace setup
-COPY ../../go.work ../../go.work.sum ./
+# Copy shared module first (for replace directive)
+COPY shared/ ./shared
 
-# Copy shared module first (for better caching)
-COPY ../../shared ./shared
-
-# Copy assembly service
-COPY . ./services/assembly-service
+# Copy assembly service to match the replace directive path ../../shared
+COPY services/assembly-service/ ./services/assembly-service
 
 # Set working directory to assembly service
 WORKDIR /workspace/services/assembly-service

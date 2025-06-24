@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.23.2-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
@@ -7,14 +7,17 @@ RUN apk add --no-cache git ca-certificates tzdata
 # Set working directory
 WORKDIR /build
 
-# Copy go mod files
-COPY go.mod go.sum ./
+# Copy shared module first (for replace directive)  
+COPY shared/ ./shared
 
-# Download dependencies
+# Copy IAM service to match the replace directive path ../../shared
+COPY services/iam-service/ ./services/iam-service
+
+# Set working directory to service
+WORKDIR /build/services/iam-service
+
+# Download dependencies (go.mod and go.sum are already copied with the service)
 RUN go mod download
-
-# Copy source code
-COPY . .
 
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
@@ -37,7 +40,7 @@ RUN addgroup -g 1001 -S appgroup && \
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /build/iam-service .
+COPY --from=builder /build/services/iam-service/iam-service .
 
 # Copy timezone data
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
