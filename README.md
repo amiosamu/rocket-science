@@ -1,86 +1,123 @@
-# rocket-science
+# Rocket Science - Microservices Platform
 
-- Разработаешь 6 микросервисов, связанных между собой через Kafka и gRPC, с изоляцией от внешнего мира с помощью Envoy Gateway
-- Обеспечишь мониторинг сервиса по стандарту OpenTelemetry с интеграционными и e2e-тестами, чтобы исключить ошибки в работе
-- Освоишь кеширование данных с помощью Redis и асинхронное взаимодействие между микросервисами с помощью Kafka
-- Освоишь работу с PostgreSQL, написав свои компоненты-заготовки, упрощающие разработку
-- Реализуешь межсервисное взаимодействие, систему аутентификации и авторизации
-- На практике научишься применять архитектурные подходы построения микросервисов
+A comprehensive microservices learning project that demonstrates enterprise-grade architecture patterns and technologies.
 
+## 🚀 What You'll Learn
 
-# Домашняя работа
+- **Develop 6 microservices** connected through Kafka and gRPC, isolated from the external world using Envoy Gateway
+- **Implement monitoring** following OpenTelemetry standards with integration and e2e tests to eliminate operational errors
+- **Master data caching** with Redis and asynchronous microservice communication with Kafka
+- **Work with PostgreSQL** by creating custom platform components that simplify development
+- **Implement inter-service communication**, authentication and authorization systems
+- **Apply architectural approaches** for building microservices in practice
 
-1
-- Реализовать HTTP API для Order Service согласно контракту
-- Реализовать gRPC API для Inventory Service и Payment Service
-- Интегрировать gRPC-клиентов в Order Service, реализовав вызовы Inventory и Payment по заданной логике
+## 📚 Learning Modules
 
-2
-- Привести архитектуру Order, Inventory, Payment сервисов к виду, разобранному в уроках
-- Настроить вывод покрытия тестов в README.md каждого сервиса
-- Обеспечить покрытие юнит-тестами минимум 40% кода в каждом из трёх сервисов
+### Module 1: Core APIs
+- Implement HTTP API for Order Service according to contract
+- Implement gRPC API for Inventory Service and Payment Service
+- Integrate gRPC clients in Order Service with proper Inventory and Payment call logic
 
-3
-- Написать docker-compose для Order Service и Inventory Service, включая PostgreSQL и MongoDB
-- В Order Service заменить map на PostgreSQL с полноценной миграцией таблицы заказов
-- В Inventory Service перейти с map на MongoDB
-- Обновить unit-тесты, если логика работы с данными изменилась
+### Module 2: Architecture & Testing
+- Align Order, Inventory, Payment services architecture with best practices
+- Configure test coverage reporting in each service's README.md
+- Ensure minimum 40% unit test coverage across all three services
 
-4
-- Реализовать конфигурацию через переменные окружения во всех трёх сервисах
-- Внедрить DI-контейнер в Order, Inventory, Payment сервисы
-- Написать как минимум один интеграционный тест для репозитория в Order Service
-- Написать как минимум один e2e тест для gRPC API Inventory Service
-- Реализовать платформенную библиотеку с обёрткой над логгером и интегрировать её в сервисы
+### Module 3: Data Persistence
+- Create docker-compose for Order Service and Inventory Service with PostgreSQL and MongoDB
+- Replace in-memory maps with PostgreSQL in Order Service with full order table migrations
+- Migrate Inventory Service from maps to MongoDB
+- Update unit tests when data handling logic changes
 
+### Module 4: Configuration & Platform
+- Implement environment variable configuration across all three services
+- Integrate DI container in Order, Inventory, Payment services
+- Write at least one integration test for repository in Order Service
+- Write at least one e2e test for gRPC API in Inventory Service
+- Implement platform library with logger wrapper and integrate across services
 
-5
-- Поднять Kafka в KRaft-режиме с одним брокером через Docker Compose
-- Создать сервис Assembly Service в том же архитектурном стиле (конфигурация, DI, слои)
+### Module 5: Event-Driven Architecture
+- Deploy Kafka in KRaft mode with single broker via Docker Compose
+- Create Assembly Service following the same architectural style (configuration, DI, layers)
 
-В Assembly Service:
-- Реализовать Kafka Consumer события оплаты заказа
-- Добавить задержку 10 секунд
-- Отправить событие об успешной сборке
+**Assembly Service:**
+- Implement Kafka Consumer for order payment events
+- Add 10-second processing delay
+- Send successful assembly completion event
 
-В Order Service:
-- Реализовать Kafka Producer, отправляющий событие оплаты
-- Реализовать Kafka Consumer события сборки и обновить статус заказа
+**Order Service:**
+- Implement Kafka Producer sending payment events
+- Implement Kafka Consumer for assembly events and update order status
 
-- Создать сервис Notification Service в том же архитектурном стиле (конфигурация, DI, слои)
-- В Notification Service реализовать Kafka Consumer, слушающий событие оплаты и событие сборки, и отправляющий уведомление в Telegram
+**Notification Service:**
+- Create service following same architectural style
+- Implement Kafka Consumer listening to payment and assembly events
+- Send notifications to Telegram
 
+### Module 6: Identity & Access Management
+- Create IAM Service following same architectural style
+- Implement gRPC API for IAM Service according to auth service contracts
+- Implement session validation interceptor in Inventory Service
+- Store user data in PostgreSQL with startup migrations
+- Store session data in Redis with 24-hour TTL using keys and hash structures
+- Add IAM Service integration in Notification Service to get user contact info (e.g., Telegram ID)
 
-6
-- Создать сервис IAM Service в том же архитектурном стиле (конфигурация, DI, слои)
-- Реализовать gRPC API для IAM Service согласно контракту auth_service_contracts.md
-- В Inventory Service реализовать интерцептор, проверяющий валидность сессии
-- Хранить данные о пользователях в PostgreSQL, обеспечить миграции при старте сервиса
-- Хранить данные о сессиях в Redis с TTL 24 часа, используя ключи и хэш-структуры
-- В Notification Service добавить запрос к IAM Service на получение информации о способе связи пользователя (например, Telegram ID) перед отправкой уведомления
+### Module 7: Observability
+- Configure log storage for all services and display in Kibana
 
+**Metrics Collection:**
+- Order Service: order count and total revenue
+- Assembly Service: rocket assembly time
 
-7
-- Настроить сохранение логов всех сервисов в хранилище и их отображение в Kibana
+**Alerting:**
+- Configure alert: if more than 10 orders per minute, send Telegram notification
+- Add request tracing in Order Service: from entry to Payment Service and Inventory Service calls
+- Extract span creation logic and other observability tools to platform library
 
-Настроить сбор метрик:
-- В Order Service — количество заказов и суммарную выручку
-- В Assembly Service — время сборки ракеты
+### Module 8: Gateway & Deployment
+- Configure Envoy as single system entry point
+- Define routes to services: HTTP and gRPC
+- Add session validation through IAM service for each incoming request (Lua script)
+- Hide all services behind Envoy - expose only one external port
+- Containerize all services with Docker and integrate via Docker Compose
 
-- Настроить алерт: если за минуту оформляется более 10 заказов, отправлять уведомление в Telegram
-- Добавить трассировку запроса в Order Service: от входа до вызовов в Payment Service и Inventory Service
-- Вынести логику создания спанов и другие общие инструменты наблюдаемости в платформенную библиотеку
+## 🏗️ Project Architecture
 
+![Project Architecture](Project.png "Rocket Science Architecture")
 
-8
-- Настроить Envoy как единую точку входа в систему
-- Прописать маршруты к сервисам: HTTP и gRPC
-- Добавить проверку сессии через IAM-сервис на каждый входящий запрос (Lua-скрипт)
-- Скрыть все сервисы за Envoy — оставить наружу только один порт
-- Завернуть все сервисы в Docker-контейнеры и подключить их к общей системе через Docker Compose
+## 🚀 Quick Start
 
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd rocket-science
+   ```
 
+2. **Setup environment**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
 
-# Project Architecture
+3. **Start the platform**
+   ```bash
+   make up
+   ```
 
-![Project](Project.png "Project")
+4. **Verify deployment**
+   ```bash
+   make health-check
+   ```
+
+## 🛠️ Technology Stack
+
+- **Languages:** Go
+- **Databases:** PostgreSQL, MongoDB, Redis
+- **Messaging:** Apache Kafka
+- **API:** gRPC, HTTP/REST
+- **Gateway:** Envoy Proxy
+- **Monitoring:** Prometheus, Grafana, Jaeger, Kibana
+- **Containerization:** Docker, Docker Compose
+- **Testing:** Unit, Integration, E2E tests
+
+## 📁 Project Structure
