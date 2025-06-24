@@ -1,435 +1,305 @@
 version: '3.8'
 
-networks:
-  rocket-science-network:
-    driver: bridge
-
-volumes:
-  postgres_data:
-  mongodb_data:
-  redis_data:
-  grafana_data:
-  prometheus_data:
-
 services:
-  # =================================
-  # ENVOY GATEWAY (Single Entry Point)
-  # =================================
-  envoy:
-    build:
-      context: ./infrastructure/envoy
-      dockerfile: Dockerfile
-    container_name: envoy-gateway
-    ports:
-      - "${GATEWAY_PORT:-80}:10000"
-      - "${GATEWAY_ADMIN_PORT:-9901}:9901"
+  # Databases
+  postgres:
+    image: postgres:15-alpine
+    container_name: rocket-postgres
     environment:
-      - ENVOY_LOG_LEVEL=info
+      POSTGRES_DB: rocket_db
+      POSTGRES_USER: rocket_user
+      POSTGRES_PASSWORD: rocket_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/databases/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
-      - rocket-science-network
-    depends_on:
-      - iam-service
-      - order-service
-      - payment-service
-      - inventory-service
-    restart: unless-stopped
+      - rocket-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9901/ready"]
+      test: ["CMD-SHELL", "pg_isready -U rocket_user -d rocket_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:7.0
+    container_name: rocket-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+      MONGO_INITDB_DATABASE: inventory_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./infrastructure/databases/mongodb/init.js:/docker-entrypoint-initdb.d/init.js
+    networks:
+      - rocket-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: rocket-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - rocket-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Message Queue
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: rocket-kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - rocket-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 30s
+      retries: 5
 
-  # =================================
-  # CORE MICROSERVICES
-  # =================================
-  
-  # IAM Service - Authentication & Authorization
+  # Core Services
   iam-service:
     build:
       context: ./services/iam-service
       dockerfile: Dockerfile
-    container_name: iam-service
+    container_name: rocket-iam
     environment:
-      # Database Configuration
-      - DB_HOST=${DB_HOST:-postgres}
-      - DB_PORT=${DB_PORT:-5432}
-      - DB_NAME=${DB_NAME_IAM:-rocket_iam}
-      - DB_USER=${DB_USER:-rocket_user}
-      - DB_PASSWORD=${DB_PASSWORD:-RocketScience2024!PostgreSQL}
-      
-      # Redis Configuration
-      - REDIS_HOST=${REDIS_HOST:-redis}
-      - REDIS_PORT=${REDIS_PORT:-6379}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-RocketScience2024!Redis}
-      
-      # Service Configuration
-      - GRPC_PORT=${IAM_SERVICE_GRPC_PORT:-50053}
-      - HTTP_PORT=${IAM_SERVICE_HTTP_PORT:-8080}
-      
-      # Security Configuration
-      - JWT_SECRET=${JWT_SECRET:-rocket-science-jwt-super-secret-key-2024-development-environment-very-long-and-secure}
-      - JWT_ACCESS_TOKEN_DURATION=${JWT_ACCESS_TOKEN_DURATION:-15m}
-      - JWT_REFRESH_TOKEN_DURATION=${JWT_REFRESH_TOKEN_DURATION:-7d}
-      
-      # Observability
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-      - METRICS_ENABLED=${ENABLE_METRICS:-true}
-      - TRACING_ENABLED=${ENABLE_TRACING:-true}
-      - OTEL_ENDPOINT=${OTEL_ENDPOINT:-http://otel-collector:4317}
-    networks:
-      - rocket-science-network
+      - IAM_SERVER_HOST=0.0.0.0
+      - IAM_SERVER_PORT=8080
+      - IAM_DATABASE_HOST=postgres
+      - IAM_DATABASE_PORT=5432
+      - IAM_DATABASE_USER=rocket_user
+      - IAM_DATABASE_PASSWORD=rocket_password
+      - IAM_DATABASE_DBNAME=rocket_db
+      - IAM_REDIS_HOST=redis
+      - IAM_REDIS_PORT=6379
+      - IAM_JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      - IAM_LOG_LEVEL=info
+    ports:
+      - "8080:8080"
     depends_on:
-      - postgres
-      - redis
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 40s
-
-  # Order Service - Main business logic
-  order-service:
-    build:
-      context: ./services/order-service
-      dockerfile: Dockerfile
-    container_name: order-service
-    environment:
-      # Database Configuration
-      - DB_HOST=${DB_HOST:-postgres}
-      - DB_PORT=${DB_PORT:-5432}
-      - DB_NAME=${DB_NAME_ORDERS:-rocket_orders}
-      - DB_USER=${DB_USER:-rocket_user}
-      - DB_PASSWORD=${DB_PASSWORD:-RocketScience2024!PostgreSQL}
-      
-      # Service Configuration
-      - HTTP_PORT=${ORDER_SERVICE_HTTP_PORT:-8080}
-      - SERVER_HOST=0.0.0.0
-      - SERVER_PORT=${ORDER_SERVICE_HTTP_PORT:-8080}
-      
-      # External Services
-      - IAM_SERVICE_URL=iam-service:${IAM_SERVICE_GRPC_PORT:-50053}
-      - PAYMENT_SERVICE_URL=payment-service:${PAYMENT_SERVICE_GRPC_PORT:-50051}
-      - INVENTORY_SERVICE_URL=inventory-service:${INVENTORY_SERVICE_GRPC_PORT:-50052}
-      
-      # Kafka Configuration
-      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
-      - KAFKA_PAYMENT_EVENTS_TOPIC=${KAFKA_TOPIC_PAYMENT_PROCESSED:-payment.processed}
-      - KAFKA_ASSEMBLY_EVENTS_TOPIC=${KAFKA_TOPIC_ASSEMBLY_COMPLETED:-assembly.completed}
-      - KAFKA_CONSUMER_GROUP=${KAFKA_CONSUMER_GROUP_ORDER:-order-service-group}
-      
-      # Observability
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-      - OTEL_ENDPOINT=${OTEL_ENDPOINT:-http://otel-collector:4317}
-      - METRICS_ENABLED=${ENABLE_METRICS:-true}
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
-      - rocket-science-network
-    depends_on:
-      - postgres
-      - kafka
-      - iam-service
-      - payment-service
-      - inventory-service
-    restart: unless-stopped
+      - rocket-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 60s
 
-  # Payment Service
-  payment-service:
-    build:
-      context: ./services/payment-service
-      dockerfile: Dockerfile
-    container_name: payment-service
-    environment:
-      # Service Configuration
-      - GRPC_PORT=${PAYMENT_SERVICE_GRPC_PORT:-50051}
-      - PAYMENT_SERVICE_PORT=${PAYMENT_SERVICE_GRPC_PORT:-50051}
-      
-      # External Services
-      - IAM_SERVICE_URL=iam-service:${IAM_SERVICE_GRPC_PORT:-50053}
-      
-      # Payment Configuration
-      - PAYMENT_SUCCESS_RATE=0.95
-      - PAYMENT_MAX_AMOUNT=1000000.0
-      - PAYMENT_PROCESSING_TIME_MS=500
-      
-      # Observability
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-      - ENVIRONMENT=${ENVIRONMENT:-development}
-      - METRICS_ENABLED=${ENABLE_METRICS:-true}
-      - SERVICE_NAME=payment-service
-      - SERVICE_VERSION=1.0.0
-    networks:
-      - rocket-science-network
-    depends_on:
-      - iam-service
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-
-  # Inventory Service
   inventory-service:
     build:
       context: ./services/inventory-service
       dockerfile: Dockerfile
-    container_name: inventory-service
+    container_name: rocket-inventory
     environment:
-      # Service Configuration
-      - GRPC_PORT=${INVENTORY_SERVICE_GRPC_PORT:-50052}
-      - INVENTORY_SERVICE_PORT=${INVENTORY_SERVICE_GRPC_PORT:-50052}
-      
-      # MongoDB Configuration
-      - MONGODB_CONNECTION_URL=mongodb://${MONGO_USER:-rocket_user}:${MONGO_PASSWORD:-RocketScience2024!MongoDB}@mongo:27017/${MONGO_DATABASE:-rocket_inventory}?authSource=rocket_inventory
-      - MONGODB_DATABASE_NAME=${MONGO_DATABASE:-rocket_inventory}
-      - MONGODB_HOST=${MONGO_HOST:-mongo}
-      - MONGODB_PORT=${MONGO_PORT:-27017}
-      
-      # External Services
-      - IAM_SERVICE_URL=iam-service:${IAM_SERVICE_GRPC_PORT:-50053}
-      
-      # Inventory Configuration
-      - INVENTORY_DEFAULT_STOCK_LEVEL=100
-      - INVENTORY_LOW_STOCK_THRESHOLD=10
-      - SEED_TEST_DATA=true
-      
-      # Observability
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-      - ENVIRONMENT=${ENVIRONMENT:-development}
-      - METRICS_ENABLED=${ENABLE_METRICS:-true}
-      - SERVICE_NAME=inventory-service
-      - SERVICE_VERSION=1.0.0
-    networks:
-      - rocket-science-network
+      - INVENTORY_SERVER_PORT=8081
+      - INVENTORY_DATABASE_CONNECTION_URL=mongodb://admin:admin123@mongodb:27017
+      - INVENTORY_DATABASE_DATABASE_NAME=inventory_db
+      - INVENTORY_IAM_CLIENT_HOST=iam-service
+      - INVENTORY_IAM_CLIENT_PORT=8080
+      - INVENTORY_LOG_LEVEL=info
+    ports:
+      - "8081:8081"
     depends_on:
-      - mongo
-      - iam-service
-    restart: unless-stopped
+      mongodb:
+        condition: service_healthy
+      iam-service:
+        condition: service_healthy
+    networks:
+      - rocket-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 30s
 
-  # Assembly Service - Kafka Consumer
+  payment-service:
+    build:
+      context: ./services/payment-service
+      dockerfile: Dockerfile
+    container_name: rocket-payment
+    environment:
+      - PAYMENT_SERVER_PORT=8083
+      - PAYMENT_PROCESSING_TIME_MS=1000
+      - PAYMENT_SUCCESS_RATE=0.9
+      - PAYMENT_LOG_LEVEL=info
+    ports:
+      - "8083:8083"
+    networks:
+      - rocket-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8084/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Dockerfile
+    container_name: rocket-order
+    environment:
+      - ORDER_SERVER_HOST=0.0.0.0
+      - ORDER_SERVER_PORT=8085
+      - ORDER_DATABASE_HOST=postgres
+      - ORDER_DATABASE_PORT=5432
+      - ORDER_DATABASE_USER=rocket_user
+      - ORDER_DATABASE_PASSWORD=rocket_password
+      - ORDER_DATABASE_DBNAME=rocket_db
+      - ORDER_KAFKA_BROKERS=kafka:29092
+      - ORDER_GRPC_INVENTORY_ADDRESS=inventory-service:8081
+      - ORDER_GRPC_PAYMENT_ADDRESS=payment-service:8083
+      - ORDER_LOG_LEVEL=info
+    ports:
+      - "8085:8085"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    networks:
+      - rocket-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8085/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   assembly-service:
     build:
       context: ./services/assembly-service
       dockerfile: Dockerfile
-    container_name: assembly-service
+    container_name: rocket-assembly
     environment:
-      # Service Configuration
-      - PORT=${ASSEMBLY_SERVICE_HTTP_PORT:-8083}
-      - ENVIRONMENT=${ENVIRONMENT:-development}
-      - GRACEFUL_TIMEOUT=30s
-      
-      # Kafka Configuration
-      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
-      - KAFKA_CONSUMER_GROUP_ID=${KAFKA_CONSUMER_GROUP_ASSEMBLY:-assembly-service-group}
-      - KAFKA_TOPIC_PAYMENT_PROCESSED=${KAFKA_TOPIC_PAYMENT_PROCESSED:-payment.processed}
-      - KAFKA_TOPIC_ASSEMBLY_STARTED=${KAFKA_TOPIC_ASSEMBLY_STARTED:-assembly.started}
-      - KAFKA_TOPIC_ASSEMBLY_COMPLETED=${KAFKA_TOPIC_ASSEMBLY_COMPLETED:-assembly.completed}
-      - KAFKA_TOPIC_ASSEMBLY_FAILED=${KAFKA_TOPIC_ASSEMBLY_FAILED:-assembly.failed}
-      
-      # Assembly Configuration (10 second cooldown as specified)
-      - ASSEMBLY_SIMULATION_DURATION=${ASSEMBLY_DURATION:-10s}
-      - ASSEMBLY_MAX_CONCURRENT=${ASSEMBLY_MAX_CONCURRENT:-10}
-      - ASSEMBLY_FAILURE_RATE=${ASSEMBLY_FAILURE_RATE:-0.05}
-      
-      # Observability
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-      - LOG_FORMAT=json
-      - METRICS_ENABLED=${ENABLE_METRICS:-true}
-      - METRICS_PORT=${ASSEMBLY_SERVICE_METRICS_PORT:-9090}
-    networks:
-      - rocket-science-network
+      - ASSEMBLY_SERVICE_PORT=8086
+      - ASSEMBLY_KAFKA_BROKERS=kafka:29092
+      - ASSEMBLY_KAFKA_PAYMENT_TOPIC=payment-events
+      - ASSEMBLY_KAFKA_ASSEMBLY_STARTED_TOPIC=assembly-started
+      - ASSEMBLY_KAFKA_ASSEMBLY_COMPLETED_TOPIC=assembly-completed
+      - ASSEMBLY_KAFKA_ASSEMBLY_FAILED_TOPIC=assembly-failed
+      - ASSEMBLY_LOG_LEVEL=info
+    ports:
+      - "8086:8086"
     depends_on:
-      - kafka
-    restart: unless-stopped
+      kafka:
+        condition: service_healthy
+    networks:
+      - rocket-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8083/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8087/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 30s
 
-  # Notification Service - Kafka Consumer
   notification-service:
     build:
       context: ./services/notification-service
       dockerfile: Dockerfile
-    container_name: notification-service
+    container_name: rocket-notification
     environment:
-      # Service Configuration
-      - HTTP_PORT=${NOTIFICATION_SERVICE_HTTP_PORT:-8084}
-      - ENVIRONMENT=${ENVIRONMENT:-development}
-      
-      # Kafka Configuration
-      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
-      - KAFKA_CONSUMER_GROUP=${KAFKA_CONSUMER_GROUP_NOTIFICATION:-notification-service-group}
-      - KAFKA_TOPICS=${KAFKA_TOPIC_ASSEMBLY_COMPLETED:-assembly.completed},${KAFKA_TOPIC_PAYMENT_PROCESSED:-payment.processed}
-      
-      # External Services
-      - IAM_SERVICE_URL=iam-service:${IAM_SERVICE_GRPC_PORT:-50053}
-      
-      # Telegram Configuration
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-1234567890:ABCdefGHIjklMNOpqrsTUVwxyz}
-      
-      # Observability
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-      - METRICS_ENABLED=${ENABLE_METRICS:-true}
-      - SERVICE_NAME=notification-service
-      - SERVICE_VERSION=1.0.0
-    networks:
-      - rocket-science-network
+      - NOTIFICATION_SERVICE_PORT=8088
+      - NOTIFICATION_KAFKA_BROKERS=kafka:29092
+      - NOTIFICATION_TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - NOTIFICATION_IAM_CLIENT_HOST=iam-service
+      - NOTIFICATION_IAM_CLIENT_PORT=8080
+      - NOTIFICATION_LOG_LEVEL=info
+    ports:
+      - "8088:8088"
     depends_on:
-      - kafka
-      - iam-service
-    restart: unless-stopped
+      kafka:
+        condition: service_healthy
+      iam-service:
+        condition: service_healthy
+    networks:
+      - rocket-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8084/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8089/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 30s
 
-  # =================================
-  # DATABASES
-  # =================================
-  
-  # PostgreSQL - For IAM and Order services
-  postgres:
-    image: postgres:15-alpine
-    container_name: postgres
-    environment:
-      - POSTGRES_DB=${DB_NAME:-rocket_science}
-      - POSTGRES_USER=${DB_USER:-rocket_user}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-RocketScience2024!PostgreSQL}
+  # API Gateway
+  envoy:
+    build:
+      context: ./infrastructure/envoy
+      dockerfile: Dockerfile
+    container_name: rocket-envoy
+    ports:
+      - "80:8080"   # HTTP
+      - "443:8443"  # HTTPS
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./infrastructure/databases/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./infrastructure/envoy/envoy.yaml:/etc/envoy/envoy.yaml
+      - ./infrastructure/envoy/lua:/etc/envoy/lua
+    depends_on:
+      - iam-service
+      - order-service
+      - inventory-service
+      - payment-service
     networks:
-      - rocket-science-network
-    restart: unless-stopped
+      - rocket-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-rocket_user} -d ${DB_NAME:-rocket_science}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  # MongoDB - For Inventory service
-  mongo:
-    image: mongo:7.0
-    container_name: mongodb
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER:-rocket_user}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-RocketScience2024!MongoDB}
-      - MONGO_INITDB_DATABASE=${MONGO_DATABASE:-rocket_inventory}
-    volumes:
-      - mongodb_data:/data/db
-      - ./infrastructure/databases/mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
-    networks:
-      - rocket-science-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/ready"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 10s
+      retries: 3
 
-  # Redis - For session storage
-  redis:
-    image: redis:7-alpine
-    container_name: redis
-    command: redis-server --requirepass ${REDIS_PASSWORD:-RocketScience2024!Redis}
-    environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-RocketScience2024!Redis}
-    volumes:
-      - redis_data:/data
-    networks:
-      - rocket-science-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-RocketScience2024!Redis}", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 30s
-
-  # =================================
-  # MESSAGE BROKER
-  # =================================
-  
-  # Kafka - Event streaming (KRaft mode)
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: kafka
-    environment:
-      KAFKA_NODE_ID: 1
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://kafka:9092'
-      KAFKA_LISTENERS: 'PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092'
-      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
-      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
-      KAFKA_PROCESS_ROLES: 'broker,controller'
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
-      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
-    volumes:
-      - ./infrastructure/kafka:/kafka
-    networks:
-      - rocket-science-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:9092", "--list"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-
-  # =================================
-  # MONITORING & OBSERVABILITY
-  # =================================
-  
-  # OpenTelemetry Collector
+  # Monitoring Stack
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
-    container_name: otel-collector
-    command: ["--config=/etc/otel-collector-config.yml"]
+    container_name: rocket-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
-      - ./infrastructure/monitoring/otel-collector/otel-collector.yml:/etc/otel-collector-config.yml:ro
-    networks:
-      - rocket-science-network
+      - ./infrastructure/monitoring/otel-collector/otel-collector.yml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8889:8889"   # Prometheus metrics
     depends_on:
       - jaeger
       - prometheus
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:13133/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+    networks:
+      - rocket-network
 
-  # Prometheus - Metrics storage
   prometheus:
     image: prom/prometheus:latest
-    container_name: prometheus
+    container_name: rocket-prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -438,98 +308,75 @@ services:
       - '--storage.tsdb.retention.time=200h'
       - '--web.enable-lifecycle'
     volumes:
-      - ./infrastructure/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
     networks:
-      - rocket-science-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+      - rocket-network
 
-  # Grafana - Metrics visualization
   grafana:
     image: grafana/grafana:latest
-    container_name: grafana
+    container_name: rocket-grafana
     environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-RocketScience2024!Grafana}
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_SECURITY_SECRET_KEY=${GRAFANA_SECRET_KEY:-rocket-science-grafana-secret-key-2024}
+      - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
+      - ./infrastructure/monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./infrastructure/monitoring/grafana/dashboards:/var/lib/grafana/dashboards
       - grafana_data:/var/lib/grafana
-      - ./infrastructure/monitoring/grafana:/etc/grafana/provisioning:ro
-    networks:
-      - rocket-science-network
+    ports:
+      - "3000:3000"
     depends_on:
       - prometheus
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+    networks:
+      - rocket-network
 
-  # Jaeger - Distributed tracing
   jaeger:
     image: jaegertracing/all-in-one:latest
-    container_name: jaeger
+    container_name: rocket-jaeger
     environment:
       - COLLECTOR_OTLP_ENABLED=true
-      - JAEGER_DISABLED=false
+    ports:
+      - "16686:16686"
+      - "14250:14250"
     networks:
-      - rocket-science-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:16686/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+      - rocket-network
 
-  # Kibana - Logs visualization  
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.11.0
-    container_name: kibana
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      - KIBANA_SYSTEM_PASSWORD=${KIBANA_PASSWORD:-RocketScience2024!Kibana}
-      - xpack.security.enabled=false
-    volumes:
-      - ./infrastructure/monitoring/kibana/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
-    networks:
-      - rocket-science-network
-    depends_on:
-      - elasticsearch
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5601/api/status"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-
-  # Elasticsearch - Logs storage
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
-    container_name: elasticsearch
+    container_name: rocket-elasticsearch
     environment:
       - discovery.type=single-node
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
       - xpack.security.enabled=false
-      - xpack.ml.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     volumes:
-      - ./infrastructure/monitoring/elasticsearch:/usr/share/elasticsearch/data
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
     networks:
-      - rocket-science-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      - rocket-network
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: rocket-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - rocket-network
+
+volumes:
+  postgres_data:
+  mongodb_data:
+  redis_data:
+  kafka_data:
+  prometheus_data:
+  grafana_data:
+  elasticsearch_data:
+
+networks:
+  rocket-network:
+    driver: bridge

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -303,14 +304,26 @@ func RateLimitMiddleware(requestsPerMinute int) func(http.Handler) http.Handler 
 	}
 }
 
-// AuthMiddleware validates authentication (placeholder)
+// AuthMiddleware validates authentication (basic implementation)
 func AuthMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// TODO: Implement authentication logic
-			// This would typically validate JWT tokens or session cookies
-			// For now, just pass through
-			next.ServeHTTP(w, r)
+			// Simple session validation - check for session header
+			sessionID := r.Header.Get("X-Session-ID")
+			if sessionID == "" {
+				// Check Authorization header for Bearer token
+				authHeader := r.Header.Get("Authorization")
+				if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+					http.Error(w, `{"error": "Missing authentication", "code": 401}`, http.StatusUnauthorized)
+					return
+				}
+				// Extract token from Bearer header
+				// For now, just pass through - full validation would be via IAM service
+			}
+
+			// Add user context (simplified)
+			ctx := context.WithValue(r.Context(), "session_id", sessionID)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

@@ -4,31 +4,31 @@
 // This script initializes the MongoDB database for the Inventory Service
 // It creates databases, users, collections, indexes, and seed data
 
-print('Starting MongoDB initialization for Rocket Science Platform...');
+print('Starting MongoDB initialization for rocket-science inventory service...');
 
 // =================================================================
 // Database and User Setup
 // =================================================================
 
 // Switch to the inventory database
-db = db.getSiblingDB('rocket_inventory');
+db = db.getSiblingDB('inventory_db');
 
-print('Creating rocket_inventory database...');
+print('Creating inventory_db database...');
 
 // Create user with read/write permissions
 try {
     db.createUser({
-        user: 'rocket_user',
-        pwd: 'rocket_password',
+        user: 'inventory_user',
+        pwd: 'inventory_password',
         roles: [
-            { role: 'readWrite', db: 'rocket_inventory' },
-            { role: 'dbAdmin', db: 'rocket_inventory' }
+            { role: 'readWrite', db: 'inventory_db' },
+            { role: 'dbAdmin', db: 'inventory_db' }
         ]
     });
-    print('✅ User rocket_user created successfully');
+    print('✅ User inventory_user created successfully');
 } catch (error) {
     if (error.code === 51003) { // User already exists
-        print('⚠️  User rocket_user already exists');
+        print('⚠️  User inventory_user already exists');
     } else {
         print('❌ Error creating user:', error);
     }
@@ -45,19 +45,26 @@ db.createCollection('inventory_items', {
     validator: {
         $jsonSchema: {
             bsonType: "object",
-            required: ["item_id", "name", "category", "stock_level", "unit_price"],
+            required: ["item_id", "sku", "name", "category", "stock_level", "unit_price", "created_at"],
             properties: {
                 item_id: {
                     bsonType: "string",
                     description: "Unique identifier for the inventory item"
                 },
+                sku: {
+                    bsonType: "string",
+                    description: "Stock Keeping Unit for the inventory item"
+                },
                 name: {
                     bsonType: "string",
                     description: "Human readable name of the item"
                 },
-                category: {
+                description: {
                     bsonType: "string",
-                    enum: ["propulsion", "structure", "electronics", "storage", "navigation", "safety", "misc"],
+                    description: "Detailed description of the item"
+                },
+                category: {
+                    bsonType: "int",
                     description: "Category of the rocket component"
                 },
                 stock_level: {
@@ -65,39 +72,57 @@ db.createCollection('inventory_items', {
                     minimum: 0,
                     description: "Current stock level"
                 },
-                unit_price: {
-                    bsonType: ["double", "int"],
+                reserved_stock: {
+                    bsonType: "int",
                     minimum: 0,
-                    description: "Price per unit in USD"
+                    description: "Reserved stock level"
                 },
-                description: {
-                    bsonType: "string",
-                    description: "Detailed description of the item"
+                total_stock: {
+                    bsonType: "int",
+                    minimum: 0,
+                    description: "Total stock level"
                 },
-                specifications: {
+                min_stock_level: {
+                    bsonType: "int",
+                    minimum: 0,
+                    description: "Minimum stock level"
+                },
+                max_stock_level: {
+                    bsonType: "int",
+                    minimum: 0,
+                    description: "Maximum stock level"
+                },
+                unit_price: {
                     bsonType: "object",
-                    description: "Technical specifications"
+                    required: ["amount", "currency"],
+                    properties: {
+                        amount: {
+                            bsonType: "double",
+                            minimum: 0,
+                            description: "Price amount in USD"
+                        },
+                        currency: {
+                            bsonType: "string",
+                            description: "Currency code"
+                        }
+                    }
                 },
-                supplier: {
-                    bsonType: "string",
-                    description: "Supplier information"
-                },
-                weight_kg: {
-                    bsonType: ["double", "int"],
+                weight: {
+                    bsonType: "double",
                     minimum: 0,
                     description: "Weight in kilograms"
                 },
                 dimensions: {
                     bsonType: "object",
                     properties: {
-                        length_cm: { bsonType: ["double", "int"] },
-                        width_cm: { bsonType: ["double", "int"] },
-                        height_cm: { bsonType: ["double", "int"] }
+                        length: { bsonType: "double", minimum: 0 },
+                        width: { bsonType: "double", minimum: 0 },
+                        height: { bsonType: "double", minimum: 0 }
                     }
                 },
-                is_hazardous: {
-                    bsonType: "bool",
-                    description: "Whether the item contains hazardous materials"
+                specifications: {
+                    bsonType: "object",
+                    description: "Technical specifications"
                 },
                 created_at: {
                     bsonType: "date",
@@ -106,6 +131,10 @@ db.createCollection('inventory_items', {
                 updated_at: {
                     bsonType: "date",
                     description: "Last update timestamp"
+                },
+                status: {
+                    bsonType: "int",
+                    description: "Status of the item"
                 }
             }
         }
@@ -143,7 +172,7 @@ db.inventory_items.createIndex(
 db.inventory_items.createIndex({ "category": 1, "stock_level": 1 }, { name: "idx_category_stock" });
 
 // Price range index
-db.inventory_items.createIndex({ "unit_price": 1 }, { name: "idx_unit_price" });
+db.inventory_items.createIndex({ "unit_price.amount": 1 }, { name: "idx_unit_price" });
 
 // Temporal indexes
 db.inventory_items.createIndex({ "created_at": 1 }, { name: "idx_created_at" });
@@ -164,40 +193,42 @@ const rocketComponents = [
     {
         item_id: "engine-raptor-v1",
         name: "Raptor Engine V1",
-        category: "propulsion",
+        category: 1,
         description: "Full-flow staged combustion rocket engine using methane and oxygen",
         stock_level: 25,
-        unit_price: 2500000.00,
-        weight_kg: 1600,
-        dimensions: { length_cm: 350, width_cm: 130, height_cm: 130 },
+        unit_price: {
+            amount: 2500000.00,
+            currency: "USD"
+        },
+        weight: 1600.0,
+        dimensions: { length: 3.7, width: 1.3, height: 1.3 },
         specifications: {
             thrust_kn: 2200,
             specific_impulse_s: 330,
             fuel_type: "methane",
             oxidizer_type: "oxygen"
         },
-        supplier: "SpaceX Manufacturing",
-        is_hazardous: false,
         created_at: currentTime,
         updated_at: currentTime
     },
     {
         item_id: "engine-merlin-1d",
         name: "Merlin 1D Engine",
-        category: "propulsion", 
+        category: 1, 
         description: "Gas-generator cycle rocket engine using RP-1 and oxygen",
         stock_level: 50,
-        unit_price: 1000000.00,
-        weight_kg: 630,
-        dimensions: { length_cm: 300, width_cm: 98, height_cm: 98 },
+        unit_price: {
+            amount: 1000000.00,
+            currency: "USD"
+        },
+        weight: 630.0,
+        dimensions: { length: 3.0, width: 0.98, height: 0.98 },
         specifications: {
             thrust_kn: 845,
             specific_impulse_s: 282,
             fuel_type: "rp1",
             oxidizer_type: "oxygen"
         },
-        supplier: "SpaceX Manufacturing",
-        is_hazardous: false,
         created_at: currentTime,
         updated_at: currentTime
     },
@@ -206,39 +237,41 @@ const rocketComponents = [
     {
         item_id: "tank-fuel-main",
         name: "Main Fuel Tank",
-        category: "storage",
+        category: 2,
         description: "Primary fuel storage tank with integrated baffles",
         stock_level: 15,
-        unit_price: 750000.00,
-        weight_kg: 2500,
-        dimensions: { length_cm: 1000, width_cm: 366, height_cm: 366 },
+        unit_price: {
+            amount: 750000.00,
+            currency: "USD"
+        },
+        weight: 2500.0,
+        dimensions: { length: 50.0, width: 9.0, height: 9.0 },
         specifications: {
             capacity_liters: 125000,
             material: "carbon_fiber",
             pressure_rating_psi: 350
         },
-        supplier: "Aerospace Structures Inc",
-        is_hazardous: false,
         created_at: currentTime,
         updated_at: currentTime
     },
     {
         item_id: "tank-oxidizer-main", 
         name: "Main Oxidizer Tank",
-        category: "storage",
+        category: 2,
         description: "Primary oxidizer storage tank with thermal protection",
         stock_level: 12,
-        unit_price: 850000.00,
-        weight_kg: 2800,
-        dimensions: { length_cm: 1200, width_cm: 366, height_cm: 366 },
+        unit_price: {
+            amount: 850000.00,
+            currency: "USD"
+        },
+        weight: 2800.0,
+        dimensions: { length: 1200, width: 366, height: 366 },
         specifications: {
             capacity_liters: 150000,
             material: "stainless_steel",
             pressure_rating_psi: 400,
             cryogenic_capable: true
         },
-        supplier: "Aerospace Structures Inc",
-        is_hazardous: false,
         created_at: currentTime,
         updated_at: currentTime
     },
@@ -247,39 +280,41 @@ const rocketComponents = [
     {
         item_id: "guidance-computer-v3",
         name: "Flight Guidance Computer V3",
-        category: "electronics",
+        category: 3,
         description: "Primary flight computer with redundant systems",
         stock_level: 30,
-        unit_price: 500000.00,
-        weight_kg: 45,
-        dimensions: { length_cm: 50, width_cm: 40, height_cm: 20 },
+        unit_price: {
+            amount: 500000.00,
+            currency: "USD"
+        },
+        weight: 45.0,
+        dimensions: { length: 0.5, width: 0.4, height: 0.2 },
         specifications: {
             processor: "radiation_hardened_arm",
             memory_gb: 64,
             storage_gb: 256,
             redundancy_level: "triple"
         },
-        supplier: "Aerospace Electronics Corp",
-        is_hazardous: false,
         created_at: currentTime,
         updated_at: currentTime
     },
     {
         item_id: "nav-system-gps-ins",
         name: "GPS/INS Navigation System",
-        category: "navigation",
+        category: 4,
         description: "Integrated GPS and inertial navigation system",
         stock_level: 40,
-        unit_price: 300000.00,
-        weight_kg: 25,
-        dimensions: { length_cm: 30, width_cm: 25, height_cm: 15 },
+        unit_price: {
+            amount: 300000.00,
+            currency: "USD"
+        },
+        weight: 25.0,
+        dimensions: { length: 0.3, width: 0.25, height: 0.15 },
         specifications: {
             accuracy_meters: 0.1,
             update_rate_hz: 100,
             mtbf_hours: 50000
         },
-        supplier: "Navigation Systems Ltd",
-        is_hazardous: false,
         created_at: currentTime,
         updated_at: currentTime
     },
@@ -288,19 +323,20 @@ const rocketComponents = [
     {
         item_id: "abort-system-escape",
         name: "Launch Escape System",
-        category: "safety",
+        category: 5,
         description: "Emergency crew escape system with solid motors",
         stock_level: 8,
-        unit_price: 2000000.00,
-        weight_kg: 6000,
-        dimensions: { length_cm: 800, width_cm: 400, height_cm: 400 },
+        unit_price: {
+            amount: 2000000.00,
+            currency: "USD"
+        },
+        weight: 6000.0,
+        dimensions: { length: 0.8, width: 0.4, height: 0.4 },
         specifications: {
             escape_velocity_ms: 150,
             activation_time_ms: 40,
             motor_type: "solid_propellant"
         },
-        supplier: "Safety Systems International",
-        is_hazardous: true,
         created_at: currentTime,
         updated_at: currentTime
     },
@@ -309,19 +345,20 @@ const rocketComponents = [
     {
         item_id: "nosecone-composite",
         name: "Composite Nose Cone",
-        category: "structure",
+        category: 6,
         description: "Aerodynamic nose cone with integrated payload bay",
         stock_level: 20,
-        unit_price: 400000.00,
-        weight_kg: 800,
-        dimensions: { length_cm: 600, width_cm: 366, height_cm: 366 },
+        unit_price: {
+            amount: 400000.00,
+            currency: "USD"
+        },
+        weight: 800.0,
+        dimensions: { length: 600, width: 366, height: 366 },
         specifications: {
             material: "carbon_fiber_composite",
             payload_volume_m3: 15,
             max_dynamic_pressure_kpa: 35
         },
-        supplier: "Composite Structures Co",
-        is_hazardous: false,
         created_at: currentTime,
         updated_at: currentTime
     },
@@ -330,38 +367,40 @@ const rocketComponents = [
     {
         item_id: "parachute-main-drogue",
         name: "Main Drogue Parachute",
-        category: "safety",
+        category: 5,
         description: "Primary recovery parachute system",
         stock_level: 35,
-        unit_price: 150000.00,
-        weight_kg: 120,
-        dimensions: { length_cm: 80, width_cm: 60, height_cm: 60 },
+        unit_price: {
+            amount: 150000.00,
+            currency: "USD"
+        },
+        weight: 120.0,
+        dimensions: { length: 80, width: 60, height: 60 },
         specifications: {
             diameter_deployed_m: 30,
             max_deployment_speed_ms: 250,
             material: "ripstop_nylon"
         },
-        supplier: "Recovery Systems Inc",
-        is_hazardous: false,
         created_at: currentTime,
         updated_at: currentTime
     },
     {
         item_id: "heat-shield-ceramic",
         name: "Ceramic Heat Shield Tiles",
-        category: "structure", 
+        category: 6, 
         description: "Ultra-high temperature ceramic tiles for reentry protection",
         stock_level: 500,
-        unit_price: 5000.00,
-        weight_kg: 2.5,
-        dimensions: { length_cm: 30, width_cm: 30, height_cm: 5 },
+        unit_price: {
+            amount: 5000.00,
+            currency: "USD"
+        },
+        weight: 2.5,
+        dimensions: { length: 30, width: 30, height: 5 },
         specifications: {
             max_temperature_k: 1800,
             material: "ultra_high_temp_ceramic",
             thermal_conductivity: "low"
         },
-        supplier: "Thermal Protection Systems",
-        is_hazardous: false,
         created_at: currentTime,
         updated_at: currentTime
     }
@@ -454,8 +493,8 @@ print('');
 print('=============================================================');
 print('MongoDB initialization completed successfully!');
 print('=============================================================');
-print('Database: rocket_inventory');
-print('User: rocket_user (with readWrite + dbAdmin permissions)');
+print('Database: inventory_db');
+print('User: inventory_user (with readWrite + dbAdmin permissions)');
 print('');
 print('Collections created:');
 print(`  - inventory_items (${itemCount} documents)`);
@@ -467,7 +506,7 @@ print('Validation schemas: Enforced for data integrity');
 print('');
 print('Seeded components by category:');
 const categoryStats = db.inventory_items.aggregate([
-    { $group: { _id: "$category", count: { $sum: 1 }, total_value: { $sum: "$unit_price" } } },
+    { $group: { _id: "$category", count: { $sum: 1 }, total_value: { $sum: "$unit_price.amount" } } },
     { $sort: { count: -1 } }
 ]).toArray();
 
@@ -477,7 +516,7 @@ categoryStats.forEach(stat => {
 
 print('');
 print('Connection string for services:');
-print('  mongodb://rocket_user:rocket_password@mongo:27017/rocket_inventory?authSource=rocket_inventory');
+print('  mongodb://inventory_user:inventory_password@mongo:27017/inventory_db?authSource=inventory_db');
 print('');
 print('Next steps:');
 print('  1. Inventory Service will connect and start serving requests');
