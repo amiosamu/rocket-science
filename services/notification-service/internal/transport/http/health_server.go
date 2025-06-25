@@ -16,7 +16,7 @@ import (
 
 // HealthServer provides HTTP health check endpoints for monitoring and orchestration
 type HealthServer struct {
-	telegramService *service.TelegramService
+	telegramService service.TelegramServiceInterface
 	iamClient       *clients.IAMClient
 	kafkaConsumer   *kafka.Consumer
 	logger          logging.Logger
@@ -28,7 +28,7 @@ type HealthServer struct {
 
 // NewHealthServer creates a new health server
 func NewHealthServer(
-	telegramService *service.TelegramService,
+	telegramService service.TelegramServiceInterface,
 	iamClient *clients.IAMClient,
 	kafkaConsumer *kafka.Consumer,
 	logger logging.Logger,

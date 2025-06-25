@@ -12,6 +12,7 @@ import (
 
 	"github.com/amiosamu/rocket-science/services/iam-service/internal/container"
 	grpcTransport "github.com/amiosamu/rocket-science/services/iam-service/internal/transport/grpc"
+	"github.com/amiosamu/rocket-science/services/iam-service/internal/transport/http"
 	"github.com/amiosamu/rocket-science/shared/platform/observability/logging"
 )
 
@@ -27,9 +28,10 @@ const (
 
 // Application represents the main application
 type Application struct {
-	container  *container.Container
-	grpcServer *grpcTransport.Server
-	logger     logging.Logger
+	container    *container.Container
+	grpcServer   *grpcTransport.Server
+	healthServer *http.HealthServer
+	logger       logging.Logger
 
 	// Lifecycle management
 	ctx        context.Context
@@ -72,7 +74,12 @@ func (app *Application) initializeComponents() error {
 		return fmt.Errorf("gRPC server initialization failed: %w", err)
 	}
 
-	// Step 3: Run post-initialization checks
+	// Step 3: Initialize HTTP health server
+	if err := app.initializeHTTPHealthServer(); err != nil {
+		return fmt.Errorf("HTTP health server initialization failed: %w", err)
+	}
+
+	// Step 4: Run post-initialization checks
 	if err := app.postInitializationChecks(); err != nil {
 		return fmt.Errorf("post-initialization checks failed: %w", err)
 	}
@@ -129,6 +136,27 @@ func (app *Application) initializeGRPCServer() error {
 
 	app.logger.Info(app.ctx, "gRPC server initialized successfully", map[string]interface{}{
 		"address": server.GetAddress(),
+	})
+
+	return nil
+}
+
+// initializeHTTPHealthServer creates and configures the HTTP health server
+func (app *Application) initializeHTTPHealthServer() error {
+	app.logger.Info(app.ctx, "Initializing HTTP health server...")
+
+	// Get health port from environment or use default
+	healthPort := os.Getenv("IAM_HEALTH_PORT")
+	if healthPort == "" {
+		healthPort = "8080" // Default health port
+	}
+
+	// Create health server
+	healthServer := http.NewHealthServer(app.container, healthPort)
+	app.healthServer = healthServer
+
+	app.logger.Info(app.ctx, "HTTP health server initialized successfully", map[string]interface{}{
+		"address": healthServer.GetAddress(),
 	})
 
 	return nil
@@ -202,11 +230,31 @@ func (app *Application) Start() error {
 		}
 	}()
 
+	// Start HTTP health server in a goroutine
+	app.shutdownWg.Add(1)
+	go func() {
+		defer app.shutdownWg.Done()
+
+		app.logger.Info(app.ctx, "Starting HTTP health server", map[string]interface{}{
+			"address": app.healthServer.GetAddress(),
+		})
+
+		if err := app.healthServer.Start(app.ctx); err != nil {
+			app.logger.Error(app.ctx, "HTTP health server failed", err, map[string]interface{}{
+				"address": app.healthServer.GetAddress(),
+			})
+
+			// Trigger shutdown on server failure
+			app.initiateShutdown("health_server_failure")
+		}
+	}()
+
 	// Log successful startup
 	app.logger.Info(app.ctx, "IAM service started successfully", map[string]interface{}{
 		"service":        serviceName,
 		"version":        serviceVersion,
 		"grpc_address":   app.grpcServer.GetAddress(),
+		"http_address":   app.healthServer.GetAddress(),
 		"container_info": app.container.GetConnectionInfo(),
 		"health_status":  app.container.GetHealthStatus(),
 	})
@@ -264,7 +312,7 @@ func (app *Application) shutdown() error {
 
 	var shutdownErrors []error
 
-	// Step 1: Stop accepting new requests (stop gRPC server)
+	// Step 1: Stop accepting new requests (stop servers)
 	if app.grpcServer != nil {
 		app.logger.Info(shutdownCtx, "Stopping gRPC server...")
 
@@ -273,6 +321,17 @@ func (app *Application) shutdown() error {
 			shutdownErrors = append(shutdownErrors, fmt.Errorf("gRPC server shutdown failed: %w", err))
 		} else {
 			app.logger.Info(shutdownCtx, "gRPC server stopped successfully")
+		}
+	}
+
+	if app.healthServer != nil {
+		app.logger.Info(shutdownCtx, "Stopping HTTP health server...")
+
+		if err := app.healthServer.Stop(shutdownCtx); err != nil {
+			app.logger.Error(shutdownCtx, "Failed to stop health server gracefully", err)
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("health server shutdown failed: %w", err))
+		} else {
+			app.logger.Info(shutdownCtx, "HTTP health server stopped successfully")
 		}
 	}
 

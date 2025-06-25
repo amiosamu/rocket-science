@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Databases
   postgres:
@@ -298,12 +296,14 @@ services:
       dockerfile: ./services/notification-service/Dockerfile
     container_name: rocket-notification
     environment:
-      - NOTIFICATION_SERVICE_PORT=8088
-      - NOTIFICATION_KAFKA_BROKERS=kafka:29092
-      - NOTIFICATION_TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - NOTIFICATION_IAM_CLIENT_HOST=iam-service
-      - NOTIFICATION_IAM_CLIENT_PORT=8080
-      - NOTIFICATION_LOG_LEVEL=info
+      - SERVICE_PORT=8088
+      - HEALTH_PORT=8088
+      - KAFKA_BROKERS=kafka:29092
+      - TELEGRAM_BOT_TOKEN=8158863429:AAEHio9M7Lq0jrV4xgE2nAAkdtyKuJJuupE
+      - TELEGRAM_DEVELOPMENT_MODE=false
+      - IAM_SERVICE_HOST=iam-service
+      - IAM_SERVICE_PORT=50051
+      - LOG_LEVEL=info
     ports:
       - "8088:8088"
     depends_on:
@@ -314,7 +314,7 @@ services:
     networks:
       - rocket-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8089/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8088/health"]
       interval: 30s
       timeout: 10s
       retries: 3

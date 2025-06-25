@@ -19,7 +19,7 @@ type Container struct {
 	Config          config.Config
 	Logger          logging.Logger
 	Metrics         metrics.Metrics
-	TelegramService *service.TelegramService
+	TelegramService service.TelegramServiceInterface
 	IAMClient       *clients.IAMClient
 	EventConsumer   *kafka.EventConsumer
 	KafkaConsumer   *kafkaplatform.Consumer
@@ -28,10 +28,18 @@ type Container struct {
 
 // NewContainer creates a new container with all dependencies
 func NewContainer(cfg config.Config, logger logging.Logger, metrics metrics.Metrics) (*Container, error) {
-	// Create Telegram service
-	telegramService, err := service.NewTelegramService(cfg.Telegram, logger, metrics)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Telegram service: %w", err)
+	// Create Telegram service (real or mock based on configuration)
+	var telegramService service.TelegramServiceInterface
+	if cfg.Telegram.DevelopmentMode {
+		logger.Info(nil, "Creating Mock Telegram Service for development", nil)
+		telegramService = service.NewMockTelegramService(cfg.Telegram, logger, metrics)
+	} else {
+		logger.Info(nil, "Creating Real Telegram Service for production", nil)
+		realService, err := service.NewTelegramService(cfg.Telegram, logger, metrics)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Telegram service: %w", err)
+		}
+		telegramService = realService
 	}
 
 	// Create IAM client

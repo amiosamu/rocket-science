@@ -47,13 +47,14 @@ type TopicConfig struct {
 
 // TelegramConfig holds Telegram bot configuration
 type TelegramConfig struct {
-	BotToken      string        `json:"bot_token"`
-	Timeout       time.Duration `json:"timeout"`
-	RetryCount    int           `json:"retry_count"`
-	RetryDelay    time.Duration `json:"retry_delay"`
-	MessageLimit  int           `json:"message_limit"`
-	EnableWebhook bool          `json:"enable_webhook"`
-	WebhookURL    string        `json:"webhook_url"`
+	BotToken        string        `json:"bot_token"`
+	DevelopmentMode bool          `json:"development_mode"`
+	Timeout         time.Duration `json:"timeout"`
+	RetryCount      int           `json:"retry_count"`
+	RetryDelay      time.Duration `json:"retry_delay"`
+	MessageLimit    int           `json:"message_limit"`
+	EnableWebhook   bool          `json:"enable_webhook"`
+	WebhookURL      string        `json:"webhook_url"`
 }
 
 // IAMClientConfig holds IAM service client configuration
@@ -142,13 +143,14 @@ func LoadConfig() (*Config, error) {
 			},
 		},
 		Telegram: TelegramConfig{
-			BotToken:      getEnvWithDefault("TELEGRAM_BOT_TOKEN", ""),
-			Timeout:       getEnvAsDurationWithDefault("TELEGRAM_TIMEOUT", 30*time.Second),
-			RetryCount:    getEnvAsIntWithDefault("TELEGRAM_RETRY_COUNT", 3),
-			RetryDelay:    getEnvAsDurationWithDefault("TELEGRAM_RETRY_DELAY", 1*time.Second),
-			MessageLimit:  getEnvAsIntWithDefault("TELEGRAM_MESSAGE_LIMIT", 4096),
-			EnableWebhook: getEnvAsBoolWithDefault("TELEGRAM_ENABLE_WEBHOOK", false),
-			WebhookURL:    getEnvWithDefault("TELEGRAM_WEBHOOK_URL", ""),
+			BotToken:        getEnvWithDefault("TELEGRAM_BOT_TOKEN", ""),
+			DevelopmentMode: getEnvAsBoolWithDefault("TELEGRAM_DEVELOPMENT_MODE", true),
+			Timeout:         getEnvAsDurationWithDefault("TELEGRAM_TIMEOUT", 30*time.Second),
+			RetryCount:      getEnvAsIntWithDefault("TELEGRAM_RETRY_COUNT", 3),
+			RetryDelay:      getEnvAsDurationWithDefault("TELEGRAM_RETRY_DELAY", 1*time.Second),
+			MessageLimit:    getEnvAsIntWithDefault("TELEGRAM_MESSAGE_LIMIT", 4096),
+			EnableWebhook:   getEnvAsBoolWithDefault("TELEGRAM_ENABLE_WEBHOOK", false),
+			WebhookURL:      getEnvWithDefault("TELEGRAM_WEBHOOK_URL", ""),
 		},
 		IAMClient: IAMClientConfig{
 			Host:        getEnvWithDefault("IAM_SERVICE_HOST", "localhost"),
@@ -209,8 +211,8 @@ func LoadConfig() (*Config, error) {
 
 // Validate validates the configuration
 func (c *Config) Validate() error {
-	// Validate Telegram bot token
-	if c.Telegram.BotToken == "" {
+	// Validate Telegram bot token (skip in development mode)
+	if !c.Telegram.DevelopmentMode && c.Telegram.BotToken == "" {
 		return fmt.Errorf("telegram bot token is required")
 	}
 

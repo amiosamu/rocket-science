@@ -32,7 +32,7 @@ type EventConsumer struct {
 	config          config.Config
 	logger          logging.Logger
 	metrics         metrics.Metrics
-	telegramService *service.TelegramService
+	telegramService service.TelegramServiceInterface
 	iamClient       *clients.IAMClient
 	supportedTopics []string
 }
@@ -42,7 +42,7 @@ func NewEventConsumer(
 	cfg config.Config,
 	logger logging.Logger,
 	metrics metrics.Metrics,
-	telegramService *service.TelegramService,
+	telegramService service.TelegramServiceInterface,
 	iamClient *clients.IAMClient,
 ) *EventConsumer {
 	supportedTopics := []string{
